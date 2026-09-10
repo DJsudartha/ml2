@@ -16,7 +16,7 @@ Read the repo-root `AGENTS.md` first.
 
 ## Guardrails
 
-- Preserve the GitHub Pages base path `/mlbb-draft-website/` unless the task explicitly changes deployment.
+- Preserve the GitHub Pages base path `/ml2/` unless the task explicitly changes deployment.
 - The default frontend API target is the hosted Render backend. Do not silently switch the default local-development workflow.
 - Preserve hero names exactly. Asset filenames under `frontend/public/HeroIcon/` depend on spacing and punctuation.
 - There is no established frontend test suite here yet, so lint, typecheck, and build are the required checks.

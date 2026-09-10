@@ -38,7 +38,7 @@
 - Read the root `README.md` and the relevant feature files before editing.
 - Treat the skills in `.codex/skills/` as project-local, versioned workflow guides.
 - Keep frontend request and response shapes aligned with backend route models.
-- Preserve the GitHub Pages base path `/mlbb-draft-website/` unless the task explicitly changes deployment.
+- Preserve the GitHub Pages base path `/ml2/` unless the task explicitly changes deployment.
 - The frontend currently defaults to the hosted Render backend. Do not silently switch the default development flow without being asked.
 - Preserve hero names exactly across frontend assets, backend data, and tests. Punctuation and spacing matter.
 - Prefer consolidating duplicated request or type definitions rather than introducing new duplicates.

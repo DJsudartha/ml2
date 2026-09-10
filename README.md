@@ -31,7 +31,7 @@ npm ci
 npm run dev
 ```
 
-The Pages build uses the Vite base path `/mlbb-draft-website/`.
+The Pages build uses the Vite base path `/ml2/`.
 
 ### Backend
 

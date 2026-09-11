@@ -1,11 +1,16 @@
-import type { RecommendationRequest, RecommendationResponse} from "./types/draft"
+import type {
+  DraftAdviceResponse,
+  RecommendationRequest,
+  RecommendationResponse,
+} from "./types/draft";
 
-const API_BASE = "https://ml-2-8lkf.onrender.com";
+const DEFAULT_API_BASE = "https://ml-2-8lkf.onrender.com";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE).replace(/\/$/, "");
 
-async function postDraftState(
+async function postDraftState<TResponse>(
   endpoint: string,
   payload: RecommendationRequest
-): Promise<RecommendationResponse> {
+): Promise<TResponse> {
   const res = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     headers: {
@@ -15,16 +20,25 @@ async function postDraftState(
   });
 
   if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
+    const detail = await res.text();
+    throw new Error(`Request failed: ${res.status}${detail ? ` ${detail}` : ""}`);
   }
 
-  return res.json();
+  return (await res.json()) as TResponse;
 }
 
 export function fetchBanRecommendations(payload: RecommendationRequest) {
-  return postDraftState("/draft/recommend-bans", payload);
+  return postDraftState<RecommendationResponse>("/draft/recommend-bans", payload);
 }
 
 export function fetchPickRecommendations(payload: RecommendationRequest) {
-  return postDraftState("/draft/recommend-picks", payload);
+  return postDraftState<RecommendationResponse>("/draft/recommend-picks", payload);
+}
+
+export function fetchBanAdvice(payload: RecommendationRequest) {
+  return postDraftState<DraftAdviceResponse>("/draft/advise-bans", payload);
+}
+
+export function fetchPickAdvice(payload: RecommendationRequest) {
+  return postDraftState<DraftAdviceResponse>("/draft/advise-picks", payload);
 }

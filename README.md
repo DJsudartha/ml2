@@ -102,4 +102,4 @@ ruff check backend tests
 ## Notes for Collaborators
 
 - The frontend currently posts recommendation requests to the hosted backend at `https://ml-2-8lkf.onrender.com`
-- If you want local frontend-to-local-backend development, make the API base configurable before changing the default workflow
+- For local frontend-to-local-backend development, set `VITE_API_BASE_URL=http://127.0.0.1:8000` in `frontend/.env.local`

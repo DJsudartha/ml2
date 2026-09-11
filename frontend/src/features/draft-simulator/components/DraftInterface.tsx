@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { HeroGrid } from "./HeroGrid";
-import type { Hero, Recommendation } from "../types/draft.ts";
+import { fetchBanAdvice, fetchPickAdvice } from "../api.ts";
+import type { Hero, Recommendation, RecommendationRequest } from "../types/draft.ts";
 import { draftOrder } from "../data/draftOrder";
 import { heroes } from "../data/heroes";
 import { TIME_PER_ACTION, SLOT_COUNT } from "../constants/draft.ts";
 import { BanSlotsRow } from "./BanSlotsRow.tsx";
 import { DraftHeader } from "./DraftHeader.tsx";
 import { DraftControls } from "./DraftControls.tsx";
-import RecommendationBox  from "./RecommendationBox.tsx"
+import RecommendationBox from "./RecommendationBox.tsx";
 import { PickSlotsColumn } from "./PickSlotsColumn.tsx";
 
 export function DraftInterface() {
@@ -20,7 +21,6 @@ export function DraftInterface() {
   const [stepSelectionsCount, setStepSelectionsCount] = useState(0);
   const [hasDraftStarted, setHasDraftStarted] = useState(false);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  
 
   const [bannedHeroIds, setBannedHeroIds] = useState<
     Set<number>
@@ -38,57 +38,56 @@ export function DraftInterface() {
   const currentAction = currentStep ? currentStep.action : "complete";
 
   const getRandomAvailableHero = useCallback(() => {
-  const availableHeroes = heroes.filter(
-    (hero) => !bannedHeroIds.has(hero.id) && !pickedHeroIds.has(hero.id)
-  );
-  if (availableHeroes.length === 0) return null;
-  return availableHeroes[Math.floor(Math.random() * availableHeroes.length)];
-}, [bannedHeroIds, pickedHeroIds]);
-
-
-const applyHeroSelection = useCallback((hero: Hero, currentIndex: number) => {
-  const current = draftOrder[currentIndex];
-  if (!current) return;
-
-  let selectionApplied = false;
-
-  if (current.action === "ban") {
-    if (current.team === "blue" && blueBans.length < SLOT_COUNT) {
-      setBlueBans((prev) => [...prev, hero]);
-      setBannedHeroIds((prev) => new Set([...prev, hero.id]));
-      selectionApplied = true;
-    } else if (current.team === "red" && redBans.length < SLOT_COUNT) {
-      setRedBans((prev) => [...prev, hero]);
-      setBannedHeroIds((prev) => new Set([...prev, hero.id]));
-      selectionApplied = true;
-    }
-  } else if (current.action === "pick") {
-    if (current.team === "blue" && bluePicks.length < SLOT_COUNT) {
-      setBluePicks((prev) => [...prev, hero]);
-      setPickedHeroIds((prev) => new Set([...prev, hero.id]));
-      selectionApplied = true;
-    } else if (current.team === "red" && redPicks.length < SLOT_COUNT) {
-      setRedPicks((prev) => [...prev, hero]);
-      setPickedHeroIds((prev) => new Set([...prev, hero.id]));
-      selectionApplied = true;
-    }
-  }
-
-  if (!selectionApplied) return;
-
-  const nextSelectionsMade = stepSelectionsCount + 1;
-  const isStepComplete = nextSelectionsMade >= current.count;
-
-  if (isStepComplete) {
-    setCurrentDraftIndex((i) =>
-      i + 1 >= draftOrder.length ? draftOrder.length : i + 1
+    const availableHeroes = heroes.filter(
+      (hero) => !bannedHeroIds.has(hero.id) && !pickedHeroIds.has(hero.id)
     );
-    setStepSelectionsCount(0);
-    setTimeRemaining(TIME_PER_ACTION);
-  } else {
-    setStepSelectionsCount(nextSelectionsMade);
-  }
-}, [blueBans.length, redBans.length, bluePicks.length, redPicks.length, stepSelectionsCount]);
+    if (availableHeroes.length === 0) return null;
+    return availableHeroes[Math.floor(Math.random() * availableHeroes.length)];
+  }, [bannedHeroIds, pickedHeroIds]);
+
+  const applyHeroSelection = useCallback((hero: Hero, currentIndex: number) => {
+    const current = draftOrder[currentIndex];
+    if (!current) return;
+
+    let selectionApplied = false;
+
+    if (current.action === "ban") {
+      if (current.team === "blue" && blueBans.length < SLOT_COUNT) {
+        setBlueBans((prev) => [...prev, hero]);
+        setBannedHeroIds((prev) => new Set([...prev, hero.id]));
+        selectionApplied = true;
+      } else if (current.team === "red" && redBans.length < SLOT_COUNT) {
+        setRedBans((prev) => [...prev, hero]);
+        setBannedHeroIds((prev) => new Set([...prev, hero.id]));
+        selectionApplied = true;
+      }
+    } else if (current.action === "pick") {
+      if (current.team === "blue" && bluePicks.length < SLOT_COUNT) {
+        setBluePicks((prev) => [...prev, hero]);
+        setPickedHeroIds((prev) => new Set([...prev, hero.id]));
+        selectionApplied = true;
+      } else if (current.team === "red" && redPicks.length < SLOT_COUNT) {
+        setRedPicks((prev) => [...prev, hero]);
+        setPickedHeroIds((prev) => new Set([...prev, hero.id]));
+        selectionApplied = true;
+      }
+    }
+
+    if (!selectionApplied) return;
+
+    const nextSelectionsMade = stepSelectionsCount + 1;
+    const isStepComplete = nextSelectionsMade >= current.count;
+
+    if (isStepComplete) {
+      setCurrentDraftIndex((i) =>
+        i + 1 >= draftOrder.length ? draftOrder.length : i + 1
+      );
+      setStepSelectionsCount(0);
+      setTimeRemaining(TIME_PER_ACTION);
+    } else {
+      setStepSelectionsCount(nextSelectionsMade);
+    }
+  }, [blueBans.length, redBans.length, bluePicks.length, redPicks.length, stepSelectionsCount]);
 
   const handleHeroSelect = (hero: Hero) => {
     if (!hasDraftStarted) return;
@@ -103,19 +102,20 @@ const applyHeroSelection = useCallback((hero: Hero, currentIndex: number) => {
     applyHeroSelection(hero, currentDraftIndex);
   };
 
-const handleResetDraft = () => {
-  setBlueBans([]);
-  setRedBans([]);
-  setBluePicks([]);
-  setRedPicks([]);
+  const handleResetDraft = () => {
+    setBlueBans([]);
+    setRedBans([]);
+    setBluePicks([]);
+    setRedPicks([]);
+    setRecommendations([]);
 
-  setBannedHeroIds(new Set());
-  setPickedHeroIds(new Set());
-  setCurrentDraftIndex(0);
-  setStepSelectionsCount(0);
-  setTimeRemaining(TIME_PER_ACTION);
-  setHasDraftStarted(false);
-}
+    setBannedHeroIds(new Set());
+    setPickedHeroIds(new Set());
+    setCurrentDraftIndex(0);
+    setStepSelectionsCount(0);
+    setTimeRemaining(TIME_PER_ACTION);
+    setHasDraftStarted(false);
+  };
 
   const blueBanActiveIndex =
     currentAction === "ban" && currentTeam === "blue" ? blueBans.length : -1;
@@ -123,98 +123,82 @@ const handleResetDraft = () => {
   const redBanActiveIndex =
     currentAction === "ban" && currentTeam === "red" ? redBans.length : -1;
 
-useEffect(() => {
-  if(!hasDraftStarted) return;
-  if (currentDraftIndex >= draftOrder.length) return;
+  useEffect(() => {
+    if (!hasDraftStarted) return;
+    if (currentDraftIndex >= draftOrder.length) return;
 
-  const timer = setInterval(() => {
-    setTimeRemaining((prev) => Math.max(prev - 1, 0));
-  }, 1000);
+    const timer = setInterval(() => {
+      setTimeRemaining((prev) => Math.max(prev - 1, 0));
+    }, 1000);
 
-  return () => clearInterval(timer);
-}, [currentDraftIndex, hasDraftStarted]);
+    return () => clearInterval(timer);
+  }, [currentDraftIndex, hasDraftStarted]);
 
-useEffect(() => {
-  if (timeRemaining !== 0) return;
-  if (currentDraftIndex >= draftOrder.length) return;
+  useEffect(() => {
+    if (timeRemaining !== 0) return;
+    if (currentDraftIndex >= draftOrder.length) return;
 
-  const id = setTimeout(() => {
-    const randomHero = getRandomAvailableHero();
+    const id = setTimeout(() => {
+      const randomHero = getRandomAvailableHero();
 
-    if (randomHero) {
-      applyHeroSelection(randomHero, currentDraftIndex);
-    } else {
-      setCurrentDraftIndex((i) =>
-        i + 1 >= draftOrder.length ? draftOrder.length : i + 1
-      );
-      setStepSelectionsCount(0);
-      setTimeRemaining(TIME_PER_ACTION);
-    }
-  }, 0);
-
-  return () => clearTimeout(id);
-}, [timeRemaining, currentDraftIndex, getRandomAvailableHero, applyHeroSelection]);
-
-useEffect(() => {
-  if (!hasDraftStarted) return;
-  if (!currentStep) return;
-
-  const payload = {
-    team: currentStep.team,
-    blue_picks: bluePicks.map((h) => h.name),
-    red_picks: redPicks.map((h) => h.name),
-    blue_bans: blueBans.map((h) => h.name),
-    red_bans: redBans.map((h) => h.name),
-    top_k: 3,
-    strict_turn: true,
-    rerank_pool_size: null,
-  };
-
-  console.log("Sending recommendation payload:", payload);
-
-  let cancelled = false;
-
-  async function fetchData() {
-    try {
-      if (!currentStep) return;
-      const endpoint =
-        currentStep.action === "ban"
-          ? "/advise-bans"
-          : "/advise-picks";
-
-      console.log("Posting to endpoint:", endpoint);
-
-      const res = await fetch(`https://ml-2-8lkf.onrender.com/draft${endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-
-      const data = await res.json();
-
-      if (!cancelled) {
-        const recs = Array.isArray(data.recommendation.recommendations) 
-                    ? data.recommendation.recommendations 
-                    : [];
-        setRecommendations(recs);
+      if (randomHero) {
+        applyHeroSelection(randomHero, currentDraftIndex);
+      } else {
+        setCurrentDraftIndex((i) =>
+          i + 1 >= draftOrder.length ? draftOrder.length : i + 1
+        );
+        setStepSelectionsCount(0);
+        setTimeRemaining(TIME_PER_ACTION);
       }
-    } catch (err) {
-      console.error("Recommendation error:", err);
-      if (!cancelled) {
-        setRecommendations([]);
+    }, 0);
+
+    return () => clearTimeout(id);
+  }, [timeRemaining, currentDraftIndex, getRandomAvailableHero, applyHeroSelection]);
+
+  useEffect(() => {
+    if (!hasDraftStarted) return;
+    if (!currentStep) return;
+    const step = currentStep;
+
+    const payload: RecommendationRequest = {
+      team: step.team,
+      blue_picks: bluePicks.map((h) => h.name),
+      red_picks: redPicks.map((h) => h.name),
+      blue_bans: blueBans.map((h) => h.name),
+      red_bans: redBans.map((h) => h.name),
+      top_k: 3,
+      strict_turn: true,
+      rerank_pool_size: null,
+    };
+
+    let cancelled = false;
+
+    async function fetchData() {
+      try {
+        const data =
+          step.action === "ban"
+            ? await fetchBanAdvice(payload)
+            : await fetchPickAdvice(payload);
+
+        if (!cancelled) {
+          const recs = Array.isArray(data.recommendation.recommendations)
+            ? data.recommendation.recommendations
+            : [];
+          setRecommendations(recs);
+        }
+      } catch {
+        if (!cancelled) {
+          setRecommendations([]);
+        }
       }
     }
-  }
 
-  fetchData();
+    fetchData();
 
-  return () => {
-    cancelled = true;
-  };
-}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted]);
+    return () => {
+      cancelled = true;
+    };
+  }, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted]);
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col overflow-hidden">

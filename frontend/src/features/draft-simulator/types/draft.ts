@@ -27,7 +27,7 @@ export interface DraftStep {
 }
 
 export interface RecommendationRequest {
-  team: "blue" | "red";
+  team: Team;
   blue_picks: string[];
   red_picks: string[];
   blue_bans: string[];
@@ -39,13 +39,55 @@ export interface RecommendationRequest {
 
 export interface Recommendation {
   hero: string;
+  rank: number;
   score: number;
   reasons: string[];
-  rank: string;
+  score_components?: Record<string, number>;
+}
+
+export interface PickOrderProfile {
+  id: string;
+  title: string;
+  summary: string;
+  base_score_weight: number;
+  secure_power_weight: number;
+  flexibility_weight: number;
+  synergy_weight: number;
+  counter_weight: number;
+  role_completion_weight: number;
+  redundancy_penalty_weight: number;
 }
 
 export interface RecommendationResponse {
-  team: "blue" | "red";
+  team: Team;
   recommendations: Recommendation[];
-  reasoning: string,
+  phase_index: number;
+  rerank_pool_size?: number;
+  ban_order?: number;
+  pick_order?: number;
+  global_pick_index?: number;
+  order_profile?: PickOrderProfile;
+  base_model_source?: string;
+  base_model_name?: string;
+}
+
+export interface RetrievedPrinciple {
+  id: string;
+  title: string;
+  text: string;
+  score: number;
+}
+
+export interface AdvisorResponse {
+  uses_llm: boolean;
+  provider: string;
+  model: string | null;
+  advice: string;
+  retrieved_principles: RetrievedPrinciple[];
+  error: string | null;
+}
+
+export interface DraftAdviceResponse {
+  recommendation: RecommendationResponse;
+  advisor: AdvisorResponse;
 }

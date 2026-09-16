@@ -48,8 +48,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect backend changes
+        id: backend-changes
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]] && \
+             git diff --quiet "origin/${{ github.base_ref }}"...HEAD -- backend tests; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Python
+        if: steps.backend-changes.outputs.run == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -59,12 +73,15 @@ jobs:
             backend/requirements-dev.txt
 
       - name: Install dependencies
+        if: steps.backend-changes.outputs.run == 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 
       - name: Test
+        if: steps.backend-changes.outputs.run == 'true'
         run: python -m pytest -q
 
       - name: Lint
+        if: steps.backend-changes.outputs.run == 'true'
         run: ruff check backend tests

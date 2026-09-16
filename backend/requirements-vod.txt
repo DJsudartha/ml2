@@ -1,2 +1,2 @@
-opencv-python-headless
+opencv-python-headless==5.0.0.93
 yt-dlp

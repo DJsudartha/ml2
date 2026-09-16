@@ -1,2 +1,3 @@
 pytest==9.0.2
 ruff==0.15.8
+opencv-python-headless==5.0.0.93

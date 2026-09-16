@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterator
 
 import pandas as pd
 
 from backend.services.common.file_utils import load_json
+from backend.services.data.pick_order_annotations import (
+    PICK_ORDER_ANNOTATIONS_PATH,
+    iter_confirmed_pick_order_states,
+)
+from backend.services.data.raw_games import RAW_TOURNAMENTS_DIR, iter_raw_games
 from backend.services.modeling.ban_constants import BAN_SEQUENCE
 from backend.services.modeling.feature_engineering_profile import (
     FeatureEngineeringProfile,
@@ -21,63 +25,9 @@ from backend.services.modeling.features import (
 )
 from backend.services.modeling.pick_signal_model import ALL_SIGNAL_COLUMNS, build_pick_signal_frame
 
-RAW_TOURNAMENTS_DIR = Path("backend/data/raw/tournaments")
-
-
-def _extract_hero_names(items: list[dict[str, Any]]) -> list[str]:
-    return [item["hero"] for item in items if item.get("hero")]
-
 
 def _iter_games(raw_dir: Path = RAW_TOURNAMENTS_DIR) -> Iterator[dict[str, Any]]:
-    for game_row in _load_games(raw_dir):
-        yield dict(game_row)
-
-
-@lru_cache(maxsize=4)
-def _load_games(raw_dir: Path = RAW_TOURNAMENTS_DIR) -> tuple[dict[str, Any], ...]:
-    rows: list[dict[str, Any]] = []
-    for tournament_path in sorted(raw_dir.glob("*.json")):
-        tournament_data = load_json(tournament_path)
-        if not isinstance(tournament_data, dict):
-            continue
-
-        tournament_name = tournament_data.get("tournament")
-        pagename = tournament_data.get("pagename")
-
-        for series_index, series in enumerate(tournament_data.get("series", []), start=1):
-            series_date = series.get("date")
-            series_patch = series.get("patch")
-            blue_team_name = series.get("blue_team_name")
-            red_team_name = series.get("red_team_name")
-
-            for game_index, game in enumerate(series.get("games", []), start=1):
-                rows.append(
-                    {
-                        "source_file": tournament_path.name,
-                        "tournament": tournament_name,
-                        "pagename": pagename,
-                        "series_index": series_index,
-                        "game_index": game_index,
-                        "date": series_date,
-                        "patch": series_patch,
-                        "blue_team_name": blue_team_name,
-                        "red_team_name": red_team_name,
-                        "game_no": game.get("game_no"),
-                        "winner": game.get("winner"),
-                        "blue_picks": _extract_hero_names(game.get("blue_team", [])),
-                        "red_picks": _extract_hero_names(game.get("red_team", [])),
-                        "blue_bans": _extract_hero_names(game.get("blue_bans", [])),
-                        "red_bans": _extract_hero_names(game.get("red_bans", [])),
-                    }
-                )
-    return tuple(rows)
-
-
-def _game_identifier(game_row: dict[str, Any]) -> str:
-    return (
-        f"{game_row['source_file']}::series{game_row['series_index']}::"
-        f"game{game_row['game_index']}::{game_row['game_no']}"
-    )
+    yield from iter_raw_games(raw_dir)
 
 
 def build_ban_dataset(
@@ -102,7 +52,8 @@ def build_ban_dataset(
             if actual_ban is None:
                 continue
 
-            query_id = f"{_game_identifier(game_row)}::{acting_team}::ban{ban_order}"
+            game_id = game_row["game_id"]
+            query_id = f"{game_id}::{acting_team}::ban{ban_order}"
             unavailable_heroes = set(prior_blue_bans) | set(prior_red_bans)
 
             for candidate_hero in all_heroes:
@@ -120,7 +71,7 @@ def build_ban_dataset(
                 rows.append(
                     {
                         "query_id": query_id,
-                        "game_id": _game_identifier(game_row),
+                        "game_id": game_id,
                         "date": game_row["date"],
                         "patch": game_row["patch"],
                         "tournament": game_row["tournament"],
@@ -194,7 +145,8 @@ def build_pick_fit_dataset(
                 our_picks = [hero_name for hero_name in unique_team_picks if hero_name != actual_pick]
                 precomputed_our_missing_roles = infer_missing_roles(our_picks, hero_table) if our_picks else []
                 unavailable = set(our_picks) | set(unique_enemy_picks) | set(blue_bans) | set(red_bans)
-                query_id = f"{_game_identifier(game_row)}::{acting_team}::pick_fit::{slot_index}::{actual_pick}"
+                game_id = game_row["game_id"]
+                query_id = f"{game_id}::{acting_team}::pick_fit::{slot_index}::{actual_pick}"
 
                 for candidate_hero in all_heroes:
                     if candidate_hero in unavailable and candidate_hero != actual_pick:
@@ -218,7 +170,7 @@ def build_pick_fit_dataset(
                     rows.append(
                         {
                             "query_id": query_id,
-                            "game_id": _game_identifier(game_row),
+                            "game_id": game_id,
                             "date": game_row["date"],
                             "patch": game_row["patch"],
                             "tournament": game_row["tournament"],
@@ -271,6 +223,130 @@ def build_pick_fit_dataset(
                     if signals_only
                     else "Full pick candidate features are stored."
                 )
+            ),
+        },
+        "rows": rows,
+    }
+
+
+def build_ordered_pick_dataset(
+    processed_stats_path: Path = PROCESSED_STATS_PATH,
+    raw_dir: Path = RAW_TOURNAMENTS_DIR,
+    annotations_path: Path = PICK_ORDER_ANNOTATIONS_PATH,
+    signals_only: bool = False,
+    feature_profile: FeatureEngineeringProfile | None = None,
+) -> dict[str, Any]:
+    resolved_feature_profile = feature_profile or load_feature_engineering_profile()
+    hero_table = build_hero_feature_table(processed_stats_path, feature_profile=resolved_feature_profile)
+    processed_stats = load_json(processed_stats_path)
+    if not isinstance(processed_stats, dict):
+        raise ValueError(f"Expected processed hero stats dict at {processed_stats_path}")
+
+    all_heroes = sorted(hero_table["heroes"].keys())
+    rows: list[dict[str, Any]] = []
+
+    for state in iter_confirmed_pick_order_states(
+        annotations_path=annotations_path,
+        raw_dir=raw_dir,
+    ):
+        unavailable = (
+            set(state["prior_blue_picks"])
+            | set(state["prior_red_picks"])
+            | set(state["blue_bans"])
+            | set(state["red_bans"])
+        )
+        query_id = (
+            f"{state['game_id']}::{state['team']}::ordered_pick::"
+            f"{state['global_pick_index']}::{state['actual_pick']}"
+        )
+        precomputed_our_missing_roles = (
+            infer_missing_roles(state["our_picks"], hero_table) if state["our_picks"] else []
+        )
+        precomputed_enemy_missing_roles = (
+            infer_missing_roles(state["enemy_picks"], hero_table) if state["enemy_picks"] else []
+        )
+
+        for candidate_hero in all_heroes:
+            if candidate_hero in unavailable:
+                continue
+
+            feature_row = build_pick_candidate_feature_row(
+                candidate_hero=candidate_hero,
+                acting_team=state["team"],
+                pick_order=state["pick_order"],
+                phase_index=state["phase_index"],
+                our_picks=state["our_picks"],
+                enemy_picks=state["enemy_picks"],
+                blue_bans=state["blue_bans"],
+                red_bans=state["red_bans"],
+                hero_table=hero_table,
+                complete_stats=processed_stats,
+                feature_profile=resolved_feature_profile,
+                our_missing_roles=precomputed_our_missing_roles,
+                enemy_missing_roles=precomputed_enemy_missing_roles,
+            )
+            rows.append(
+                {
+                    "query_id": query_id,
+                    "game_id": state["game_id"],
+                    "date": state["date"],
+                    "patch": state["patch"],
+                    "tournament": state["tournament"],
+                    "source_file": state["source_file"],
+                    "team": state["team"],
+                    "pick_order": state["pick_order"],
+                    "turn_index": state["turn_index"],
+                    "global_pick_index": state["global_pick_index"],
+                    "phase_index": state["phase_index"],
+                    "actual_pick": state["actual_pick"],
+                    "candidate_hero": candidate_hero,
+                    "label_is_ordered_pick": 1 if candidate_hero == state["actual_pick"] else 0,
+                    "annotation_source": state["annotation_source"],
+                    "annotation_confidence": state["annotation_confidence"],
+                    **feature_row,
+                }
+            )
+
+    if signals_only and rows:
+        raw_frame = pd.DataFrame(rows)
+        signal_frame = build_pick_signal_frame(raw_frame, query_column="query_id")
+        base_columns = [
+            "query_id",
+            "game_id",
+            "date",
+            "patch",
+            "tournament",
+            "source_file",
+            "team",
+            "pick_order",
+            "turn_index",
+            "global_pick_index",
+            "phase_index",
+            "actual_pick",
+            "candidate_hero",
+            "label_is_ordered_pick",
+            "annotation_source",
+            "annotation_confidence",
+        ]
+        rows = signal_frame[base_columns + list(ALL_SIGNAL_COLUMNS)].to_dict(orient="records")
+
+    return {
+        "metadata": {
+            "row_count": len(rows),
+            "model_target": "label_is_ordered_pick",
+            "source_processed_stats": str(processed_stats_path),
+            "source_raw_dir": str(raw_dir),
+            "source_annotations": str(annotations_path),
+            "feature_engineering_profile": {
+                "adjusted_win_rate_smoothing_games": int(
+                    resolved_feature_profile["adjusted_win_rate_smoothing_games"]
+                ),
+                "flexibility_role_threshold": float(resolved_feature_profile["flexibility_role_threshold"]),
+                "pair_prior_games": int(resolved_feature_profile["pair_prior_games"]),
+            },
+            "note": (
+                "Ordered pick dataset uses only confirmed pick-order annotations. "
+                "Each query is built from prior picks and the bans available at that draft phase."
             ),
         },
         "rows": rows,

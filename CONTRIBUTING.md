@@ -38,6 +38,7 @@ python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 cd frontend
 npm run lint
 npx tsc -p tsconfig.app.json --noEmit
+npm run test
 npm run build
 ```
 

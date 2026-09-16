@@ -21,6 +21,7 @@
 - Frontend dev: `cd frontend && npm run dev`
 - Frontend lint: `cd frontend && npm run lint`
 - Frontend typecheck: `cd frontend && npx tsc -p tsconfig.app.json --noEmit`
+- Frontend tests: `cd frontend && npm run test`
 - Frontend build: `cd frontend && npm run build`
 - Backend install: `python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt`
 - Backend dev server: `python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000`
@@ -39,7 +40,7 @@
 - Treat the skills in `.codex/skills/` as project-local, versioned workflow guides.
 - Keep frontend request and response shapes aligned with backend route models.
 - Preserve the GitHub Pages base path `/ml2/` unless the task explicitly changes deployment.
-- The frontend currently defaults to the hosted Render backend. Do not silently switch the default development flow without being asked.
+- The frontend defaults to the local backend at `http://127.0.0.1:8000`; use `VITE_API_BASE_URL` for an explicit override.
 - Preserve hero names exactly across frontend assets, backend data, and tests. Punctuation and spacing matter.
 - Prefer consolidating duplicated request or type definitions rather than introducing new duplicates.
 
@@ -48,7 +49,7 @@
 - Start with `frontend/src/features/draft-simulator/`.
 - Check `api.ts`, `types/draft.ts`, `constants/draft.ts`, and `components/DraftInterface.tsx` before changing frontend data flow.
 - There are duplicate request and response shapes in the frontend. If the task touches API wiring, decide whether to consolidate them instead of editing only one copy.
-- There is no established frontend test suite in this repo yet, so rely on lint, typecheck, and build validation.
+- Frontend tests use Vitest and Testing Library. Run them with lint, typecheck, and build validation.
 
 ## Backend Guidance
 
@@ -74,5 +75,19 @@
 ## Review Priorities
 
 - Prioritize bugs, schema drift, stale-path edits, incorrect draft-turn behavior, and accidental artifact churn over style-only feedback.
-- For UI changes, call out any coupling to hosted backend behavior or GitHub Pages base-path behavior.
+- For UI changes, call out any coupling to API-target behavior or the GitHub Pages base path.
 - For backend changes, mention whether the change affects the frontend contract or committed data/model outputs.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues for DJsudartha/ml2. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a single context: root `CONTEXT.md` and `docs/adr/`, created when needed. See `docs/agents/domain.md`.

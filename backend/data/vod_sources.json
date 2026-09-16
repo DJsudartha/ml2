@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "source_id": "mlbb_esports",
+      "name": "MLBB Esports",
+      "channel_id": "UCMncR-XXNXhMyJELEgCrHlg",
+      "channel_handle": "@mlbbesportsofficial",
+      "playlist_ids": ["PLslA-DoL8S0Fcp1GsbvNlI4kLT43Ufjb5"],
+      "tournament_patterns": [
+        "M7 World Championship",
+        "M7"
+      ],
+      "default_layout_id": "m7_world_v1"
+    },
+    {
+      "source_id": "mpl_indonesia",
+      "name": "MPL Indonesia",
+      "channel_id": "UC1dGHGJTXU_dkiR8tW3qQgg",
+      "channel_handle": "@mplindonesia",
+      "tournament_patterns": [
+        "MPL Indonesia",
+        "MPL ID"
+      ],
+      "default_layout_id": "mpl_id_v1"
+    }
+  ],
+  "team_aliases": {
+    "Alter Ego": [
+      "AE"
+    ],
+    "Aurora Gaming": [
+      "AUR"
+    ],
+    "Aurora Gaming PH": [
+      "RORA"
+    ],
+    "Selangor Red Giants": [
+      "SRG"
+    ],
+    "Team Falcons": [
+      "FLCN",
+      "Falcons"
+    ],
+    "Team Liquid PH": [
+      "TL",
+      "TLPH",
+      "TL PH"
+    ],
+    "Team Spirit": [
+      "TS"
+    ],
+    "Virtus.pro": [
+      "VP",
+      "Virtus Pro"
+    ],
+    "Yangon Galacticos": ["YG"],
+    "Black Sentence Esports": ["BSE"],
+    "CG Esports": ["CG"],
+    "CFU Gaming": ["CFU"],
+    "Boostgate Esports": ["BGT"],
+    "Team Zone": ["Z1", "ZONE"],
+    "DianFengYaoGuai": ["DFYG"],
+    "Axe Okami": ["AXE"],
+    "Guangzhou Gaming": ["GZG"],
+    "RLG SE": ["RLGE"],
+    "Leon Esports": ["LEON"],
+    "ZETA DIVISION": [
+      "ZETA"
+    ]
+  }
+}

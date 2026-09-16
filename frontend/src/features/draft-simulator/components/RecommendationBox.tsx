@@ -1,18 +1,21 @@
-import React from "react";
-import type { Recommendation } from "../types/draft"
+import type { Recommendation } from "../types/draft";
 import { getHeroImage } from "../../../shared/utils/HeroImage";
 
 type RecommendationBoxProps = {
   team: "blue" | "red";
   recommendations: Recommendation[];
   visible: boolean;
+  isLoading: boolean;
+  error: string | null;
 };
 
-const RecommendationBox: React.FC<RecommendationBoxProps> = ({
+export function RecommendationBox({
   team,
   recommendations,
   visible,
-}) => {
+  isLoading,
+  error,
+}: RecommendationBoxProps) {
   if (!visible) return null;
 
   return (
@@ -21,7 +24,13 @@ const RecommendationBox: React.FC<RecommendationBoxProps> = ({
         {team === "blue" ? "Blue Suggestions" : "Red Suggestions"}
       </div>
 
-      {recommendations.length === 0 ? (
+      {error ? (
+        <div className="text-sm text-red-300" role="alert">
+          {error}
+        </div>
+      ) : isLoading ? (
+        <div className="text-sm text-gray-300">Loading local recommendations…</div>
+      ) : recommendations.length === 0 ? (
         <div className="text-sm text-gray-300">No recommendations yet</div>
       ) : (
         <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
@@ -56,6 +65,4 @@ const RecommendationBox: React.FC<RecommendationBoxProps> = ({
       )}
     </div>
   );
-};
-
-export default RecommendationBox;
+}

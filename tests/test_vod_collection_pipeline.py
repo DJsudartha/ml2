@@ -41,12 +41,13 @@ def _video(
     duration_sec: int = 2400,
     source_id: str = "mlbb_esports",
     channel_id: str = "UCMncR-XXNXhMyJELEgCrHlg",
+    description: str = "M7 World Championship",
 ) -> VideoRecord:
     return VideoRecord(
         video_id=video_id,
         channel_id=channel_id,
         title=title,
-        description="M7 World Championship",
+        description=description,
         published_at="2026-01-18T07:00:00Z",
         duration_sec=duration_sec,
         actual_start_time=None,
@@ -222,6 +223,56 @@ def test_aurora_rosters_are_distinct():
         source_registry=load_vod_sources(),
     )["games"][0]
     assert entry["status"] == "missing_vod"
+
+
+@pytest.mark.parametrize(
+    ("blue_team", "red_team", "title"),
+    [
+        (
+            "Team Liquid ID",
+            "Dewa United Esports",
+            "TLID vs DEWA | Regular Season Week 1 Day 3 | Game 1 | #MPLIDS18",
+        ),
+        (
+            "Bigetron by Vitality",
+            "Geek Fam ID",
+            "BTR vs GEEK | Regular Season Week 2 Day 1 | Game 1 | #MPLIDS18",
+        ),
+        (
+            "Natus Vincere",
+            "RRQ Hoshi",
+            "NAVI vs RRQ | Regular Season Week 3 Day 2 | Game 1 | #MPLIDS18",
+        ),
+    ],
+)
+def test_mpl_id_short_team_names_match_liquipedia_names(
+    blue_team: str, red_team: str, title: str
+):
+    game = {
+        **_game(),
+        "tournament": "MPL Indonesia Season 18",
+        "pagename": "MPL_Indonesia_Season_18",
+        "source_file": "MPL_Indonesia_Season_18_Regular_Season_games.json",
+        "date": "2026-01-18 07:00:00",
+        "blue_team_name": blue_team,
+        "red_team_name": red_team,
+        "game_no": 1,
+    }
+    video = _video(
+        "mpl-game",
+        title,
+        source_id="mpl_indonesia",
+        channel_id="UC1dGHGJTXU_dkiR8tW3qQgg",
+        description="MPL Indonesia Season 18",
+    )
+    manifest = build_vod_manifest(
+        games=[game],
+        videos=[video],
+        source_registry=load_vod_sources(),
+    )
+
+    entry = manifest["games"][0]
+    assert entry["status"] == "matched", entry
 
 
 def test_repeat_matchup_on_different_date_does_not_match():

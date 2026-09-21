@@ -29,6 +29,9 @@
     "Alter Ego": [
       "AE"
     ],
+    "Bigetron by Vitality": [
+      "BTR"
+    ],
     "Aurora Gaming": [
       "AUR"
     ],
@@ -58,6 +61,11 @@
     "Black Sentence Esports": ["BSE"],
     "CG Esports": ["CG"],
     "CFU Gaming": ["CFU"],
+    "Dewa United Esports": ["DEWA"],
+    "Geek Fam ID": ["GEEK"],
+    "Natus Vincere": ["NAVI"],
+    "RRQ Hoshi": ["RRQ"],
+    "Team Liquid ID": ["TLID"],
     "Boostgate Esports": ["BGT"],
     "Team Zone": ["Z1", "ZONE"],
     "DianFengYaoGuai": ["DFYG"],

@@ -16,6 +16,8 @@
   player-card separators, and completion-only same-VOD portrait-pool matching.
 - `data/broadcast_hero_names.py`: in-memory OCR for supported vertical MPL hero
   labels, restricted to Liquipedia's five final heroes per team.
+- `data/hero_portrait_matcher.py`: normalized temporal portrait scoring and a
+  conservative one-to-one team assignment for M7 artwork.
 - `data/vod_pick_order_suggestions.py`: direct per-game identity evidence and
   guarded one-missing-name elimination; the fixed role-remap path is legacy.
 - `data/pick_order_consistency.py`: fixed holdout selection, exact-order metrics,
@@ -24,8 +26,9 @@
   gallery; holdout crops cannot be added before scoring.
 - `data/pick_order_media_rights.py`: local execution guard for authorized sources;
   it records evidence but does not make a legal determination.
-- `scripts/capture_complete_drafts.py`: crop-only review bundles from bounded streams;
-  no full frame is retained unless explicitly requested.
+- `scripts/capture_complete_drafts.py`: crop-only review bundles and labeled ten-crop
+  contact sheets from bounded streams; no full frame is retained unless explicitly
+  requested.
 - `scripts/prepare_pick_order_holdout.py`: metadata-only, deterministic 30-game
   selection for each layout, excluding development matches.
 - `scripts/verify_pick_order_holdout_vods.py`: approved-uploader and game-title
@@ -50,12 +53,46 @@ of the collection pipeline.
 - Existing 27-image local gallery: **not archived or shared**, because an actual
   usage-rights basis has not been supplied.
 
-The active extractor is `complete_draft_v10`. It requires a verified official per-game
+The active extractor is `complete_draft_v11`. It requires a verified official per-game
 upload, validated layout, ten stable lock events, time-separated identity observations,
-and a first settled pre-swap frame. Tied/conflicting chronology, enlarged-card geometry,
-hovers, swaps, unknown layouts, wrong uploaders, or weak game matches produce incomplete
-review results. The evaluator rejects manual windows, same-game references, and legacy
-extractors.
+and a first settled pre-swap frame. The calibrated M7 and MPL Season 18 layouts declare
+their card slots as `pre_swap_pick_order`; lock timestamps prove transitions but animation
+ties do not override those validated slot semantics. Uncalibrated timestamp ties,
+enlarged-card geometry, hovers, swaps, unknown layouts, wrong uploaders, or weak game
+matches produce incomplete review results. The evaluator rejects manual windows,
+same-game references, and legacy extractors.
+
+## Consistency correction — 23 September 2026
+
+The capture output now reports identity and chronology as separate gates:
+`identity_complete`, `slot_order_validated`, and `order_complete`. Accepted complete
+orders remain in `picks` for compatibility; partial or provisional identities are exposed
+only through `proposed_picks`. Unresolved slots include their top two candidates, local
+margin, and team-assignment margin. M7 identity matching is now a five-by-five bijection
+over Liquipedia's final team set, using lighting/alignment-normalized observations sampled
+at separated source times. At most one independently locked missing identity may still be
+filled by Liquipedia-set elimination.
+
+This change has regression coverage but has not promoted labels, refreshed raw data,
+retrained models, or run the 60-game holdout. Weekly rollout remains disabled until each
+30-game layout set has at least 18 complete suggestions and zero incorrect complete
+orders, with the private rights, gallery, VOD, and label-audit controls present.
+
+### Automatic smoke — 24 September 2026
+
+Two official per-game VODs were processed concurrently through the automatic-window,
+crop-only v11 route, reusing the existing live VOD audit and frozen private gallery.
+MPL Indonesia Season 18 produced one complete 10-pick suggestion with both identity and
+slot-order gates valid. M7 validated the layout, lock transitions, and slot order but
+abstained on identity: one direct identity was accepted and nine remained unresolved with
+top-two diagnostics. No thresholds were changed and no smoke crop was added to the
+gallery. Both jobs retained ten settled crops plus one contact sheet, and retained no VOD
+or full frame. Each also retained the twenty small first-visible/stable-lock crops used
+to audit the ten transitions; each complete review bundle stayed below 0.2 MB.
+
+These are smoke outcomes, not gate evidence or confirmed labels. The two inspected games
+must be treated as development games and excluded when a fresh blind 30+30 selection is
+frozen for final scoring.
 
 ### Private control files
 

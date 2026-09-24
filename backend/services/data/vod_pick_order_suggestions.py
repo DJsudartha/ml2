@@ -15,7 +15,7 @@ from backend.services.modeling.pick_constants import PICK_SEQUENCE
 
 HERO_ICON_DIR = Path("frontend/public/HeroIcon")
 HERO_REFERENCE_GALLERY_DIR = Path("backend/data/raw/hero_reference_gallery")
-EXTRACTOR_VERSION = "6.1.0"
+EXTRACTOR_VERSION = "6.2.0"
 
 
 def suggest_pick_order_from_game_evidence(
@@ -35,7 +35,8 @@ def suggest_pick_order_from_game_evidence(
     constrains each team's final five identities. OCR and verified artwork may
     provide those identities, but an uncertain or contradictory game fails closed.
     """
-    reasons = []
+    reasons: list[str] = []
+    advisory_reasons: list[str] = []
     expected_slots = {
         f"{team}_pick{index}" for team in ("blue", "red") for index in range(1, 6)
     }
@@ -48,17 +49,23 @@ def suggest_pick_order_from_game_evidence(
             reasons.append(f"{team}_liquipedia_hero_set_invalid")
 
     events_by_slot: dict[str, dict[str, Any]] = {}
+    slot_order_validated = not require_lock_events
     if require_lock_events:
+        lock_events_valid = True
         if not provenance or not provenance.get("video_match_verified"):
             reasons.append("unverified_game_vod")
+            lock_events_valid = False
         if not provenance or not provenance.get("layout_validated"):
             reasons.append("unknown_or_unverified_layout")
+            lock_events_valid = False
         if not complete_frame_verified or first_settled_timestamp_sec is None:
             reasons.append("unverified_first_settled_pre_swap_frame")
+            lock_events_valid = False
         for event in lock_events or []:
             slot = str(event.get("slot", ""))
             if slot not in expected_slots or slot in events_by_slot:
                 reasons.append("duplicate_or_unknown_lock_event")
+                lock_events_valid = False
                 continue
             events_by_slot[slot] = event
             try:
@@ -66,6 +73,7 @@ def suggest_pick_order_from_game_evidence(
                 stable_through = float(event["stable_through_sec"])
             except (KeyError, TypeError, ValueError):
                 reasons.append(f"{slot}_lock_timestamp_missing")
+                lock_events_valid = False
                 continue
             if (not event.get("placeholder_observed") or
                 not event.get("final_slot_verified") or
@@ -74,18 +82,39 @@ def suggest_pick_order_from_game_evidence(
                 (first_settled_timestamp_sec is not None and
                  when >= first_settled_timestamp_sec)):
                 reasons.append(f"{slot}_unverified_lock_event")
+                lock_events_valid = False
         if len(events_by_slot) != 10:
             reasons.append("missing_lock_events")
+            lock_events_valid = False
         chronological = []
         for team, order, _ in PICK_SEQUENCE:
             event = events_by_slot.get(f"{team}_pick{order}")
             if event and event.get("timestamp_sec") is not None:
                 chronological.append(float(event["timestamp_sec"]))
-        if len(chronological) == 10 and any(
+        timestamp_order_conflict = len(chronological) == 10 and any(
             current - previous < 0.15
             for previous, current in zip(chronological, chronological[1:])
-        ):
-            reasons.append("tied_lock_events")
+        )
+        pre_swap_slot_order = bool(
+            provenance
+            and provenance.get("slot_semantics") == "pre_swap_pick_order"
+        )
+        if timestamp_order_conflict:
+            if pre_swap_slot_order:
+                advisory_reasons.append(
+                    "lock_timestamps_not_used_for_pre_swap_slot_order"
+                )
+            else:
+                reasons.append("tied_lock_events")
+                lock_events_valid = False
+        slot_order_validated = bool(
+            lock_events_valid
+            and provenance
+            and provenance.get("video_match_verified")
+            and provenance.get("layout_validated")
+            and complete_frame_verified
+            and first_settled_timestamp_sec is not None
+        )
 
     by_slot: dict[str, list[dict[str, Any]]] = {slot: [] for slot in expected_slots}
     for observation in slot_observations:
@@ -94,8 +123,28 @@ def suggest_pick_order_from_game_evidence(
             by_slot[slot].append(observation)
     chosen = {}
     unresolved = {}
+    identity_diagnostics: dict[str, dict[str, Any]] = {}
     for slot in sorted(expected_slots):
         team = slot.split("_")[0]
+        diagnostic_candidates = [
+            observation for observation in by_slot[slot]
+            if observation.get("top_candidates")
+        ]
+        if diagnostic_candidates:
+            diagnostic = max(
+                diagnostic_candidates,
+                key=lambda item: float(item.get("confidence", 0.0) or 0.0),
+            )
+            identity_diagnostics[slot] = {
+                "best_candidate": diagnostic.get("best_candidate"),
+                "candidate_confidence": round(
+                    float(diagnostic.get("confidence", 0.0) or 0.0), 4
+                ),
+                "top_candidates": diagnostic.get("top_candidates", []),
+                "margin": diagnostic.get("margin"),
+                "assignment_margin": diagnostic.get("assignment_margin"),
+                "identity_reason": diagnostic.get("reason"),
+            }
         confident = [
             observation for observation in by_slot[slot]
             if observation.get("hero") in pools[team]
@@ -139,6 +188,7 @@ def suggest_pick_order_from_game_evidence(
                  if item.get("timestamp_sec") is not None),
                 default=None,
             ),
+            **identity_diagnostics.get(slot, {}),
         }
 
     if complete_frame_verified:
@@ -173,10 +223,16 @@ def suggest_pick_order_from_game_evidence(
     reasons.extend(f"{slot}_{reason}" for slot, reason in unresolved.items())
     slot_suggestions = [
         {"slot": slot, **chosen[slot]} if slot in chosen else
-        {"slot": slot, "hero": None, "reason": unresolved[slot]}
+        {
+            "slot": slot,
+            "hero": None,
+            "reason": unresolved[slot],
+            **identity_diagnostics.get(slot, {}),
+        }
         for slot in sorted(expected_slots)
     ]
 
+    identity_sets_valid = True
     for team, pool in pools.items():
         selected = [
             chosen[f"{team}_pick{index}"]["hero"]
@@ -185,44 +241,60 @@ def suggest_pick_order_from_game_evidence(
         ]
         if len(selected) == 5 and set(selected) != set(pool):
             reasons.append(f"{team}_observations_do_not_match_liquipedia")
-    order_complete = not reasons and len(chosen) == 10
-    picks = []
-    if order_complete:
-        for global_index, (team, team_pick_order, turn_index) in enumerate(
-            PICK_SEQUENCE, start=1
-        ):
-            slot = f"{team}_pick{team_pick_order}"
-            evidence = chosen[slot]
-            picks.append({
-                "global_pick_index": global_index,
-                "team": team,
-                "team_pick_order": team_pick_order,
-                "turn_index": turn_index,
-                "slot": slot,
-                "hero": evidence["hero"],
-                "confidence": round(evidence["confidence"], 4),
-                "identity_sources": evidence["sources"],
-                "identity_observed_at_sec": evidence["identity_observed_at_sec"],
-                "lock_timestamp_sec": (
-                    events_by_slot[slot].get("timestamp_sec")
-                    if slot in events_by_slot else None
-                ),
-                "evidence_frame": None,
-                "evidence_frames": evidence["evidence_frames"],
-            })
+            identity_sets_valid = False
+        elif len(selected) != 5:
+            identity_sets_valid = False
+    identity_complete = len(chosen) == 10 and identity_sets_valid
+    order_complete = bool(
+        not reasons
+        and identity_complete
+        and (slot_order_validated or not require_lock_events)
+    )
+    proposed_picks = []
+    for global_index, (team, team_pick_order, turn_index) in enumerate(
+        PICK_SEQUENCE, start=1
+    ):
+        slot = f"{team}_pick{team_pick_order}"
+        if slot not in chosen:
+            continue
+        evidence = chosen[slot]
+        proposed_picks.append({
+            "global_pick_index": global_index,
+            "team": team,
+            "team_pick_order": team_pick_order,
+            "turn_index": turn_index,
+            "slot": slot,
+            "hero": evidence["hero"],
+            "confidence": round(evidence["confidence"], 4),
+            "identity_sources": evidence["sources"],
+            "identity_observed_at_sec": evidence["identity_observed_at_sec"],
+            "lock_timestamp_sec": (
+                events_by_slot[slot].get("timestamp_sec")
+                if slot in events_by_slot else None
+            ),
+            "evidence_frame": None,
+            "evidence_frames": evidence["evidence_frames"],
+        })
+    picks = proposed_picks if order_complete else []
+    all_reasons = sorted(set(reasons + advisory_reasons))
     result = {
         "game_id": raw_game["game_id"],
         "source": "vod_complete_frame_assignment",
         "status": "needs_review",
+        "identity_complete": identity_complete,
+        "slot_order_validated": slot_order_validated,
         "order_complete": order_complete,
-        "confidence": round(float(np.mean([pick["confidence"] for pick in picks]))
-                            if picks else 0.0, 4),
-        "notes": "; ".join(sorted(set(reasons))),
+        "confidence": round(float(np.mean([
+            pick["confidence"] for pick in proposed_picks
+        ])) if proposed_picks else 0.0, 4),
+        "notes": "; ".join(all_reasons),
         "ambiguity_reasons": sorted(set(reasons)),
+        "advisory_reasons": sorted(set(advisory_reasons)),
         "lock_events": [events_by_slot[slot] for slot in sorted(events_by_slot)],
         "extractor_version": EXTRACTOR_VERSION,
         "assignment_method": "per_game_hero_evidence",
         "slot_suggestions": slot_suggestions,
+        "proposed_picks": proposed_picks,
         "picks": picks,
     }
     if provenance:

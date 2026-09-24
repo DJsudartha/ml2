@@ -155,23 +155,37 @@ an enlarged card; that comparison does not assign hero names.
 The active identity path uses Liquipedia's final five heroes per team as a
 candidate set, not its nonchronological `slot` field. MPL Season 18 reads vertical
 broadcast hero names using local OCR. M7 uses canonical icons and reviewer-confirmed
-broadcast artwork in a local gallery. Repeated observations must agree, be separated
-in source time, and reject same-team duplicates. A complete proposal also requires a
-stable placeholder-to-final lock event for every slot and agreement with the first
-settled pre-swap frame. One unread hero can be inferred by elimination only when that
-slot and lock event are independently verified.
+broadcast artwork in a local gallery. M7 scores time-separated observations after
+alignment and lighting normalization, then solves one one-to-one assignment across
+all five team slots. Absolute, slot-margin, and team-assignment gates reject weak or
+ambiguous identities. A complete proposal also requires a stable placeholder-to-final
+lock event for every slot and agreement with the first settled pre-swap frame. For the
+calibrated M7 and MPL Season 18 profiles, those slot positions define pick order;
+animation-overlapped lock timestamps are diagnostic evidence rather than a second order
+source. One unread hero can be inferred by elimination only when that slot and lock
+event are independently verified.
 The old profile `role_slot_map` remains for legacy comparisons but is not used by
 the active capture command.
 
 Frames are processed in memory. The default `--evidence-mode crops` writes small,
-timestamped lock/settled portrait crops and `report.json`; it does not retain a complete frame,
-frame sequence, or VOD. Use `--evidence-mode frame` only for a deliberate full-frame
-review artifact, or `--evidence-mode none` for metadata-only diagnostics. Identical
-completed jobs are reused.
+timestamped lock/settled portrait crops, a labeled ten-crop contact sheet, and
+`report.json`; it does not retain a complete frame, frame sequence, or VOD. Review JSON
+separates `identity_complete`, `slot_order_validated`, and `order_complete`. Partial
+identities appear in `proposed_picks` with top-two candidate diagnostics, while `picks`
+remains populated only for a fully accepted order. Use `--evidence-mode frame` only for
+a deliberate full-frame review artifact, or `--evidence-mode none` for metadata-only
+diagnostics. Identical completed jobs are reused.
 
 ```powershell
-& $vodPython backend/scripts/capture_complete_drafts.py --manifest path/to/manifest.json --profiles backend/data/complete_draft_profiles.json --raw-dir path/to/raw --gallery-manifest private/pick_order_gallery.json --media-rights-file private/media_rights.json --evidence-mode crops --output-dir path/to/review-output
+& $vodPython backend/scripts/capture_complete_drafts.py --manifest path/to/manifest.json --profiles backend/data/complete_draft_profiles.json --raw-dir path/to/raw --vod-verification path/to/vods.json --gallery-manifest private/pick_order_gallery.json --media-rights-file private/media_rights.json --evidence-mode crops --output-dir path/to/review-output
 ```
+
+`--vod-verification` is optional when the raw Liquipedia row is available; when supplied,
+it must be a version 1 audit with a valid live or documented-manual per-game record for
+every selected game. A fixed manifest may supply the two final five-hero sets if its raw
+tournament snapshot is no longer present. When running from an isolated worktree, pass
+`--profile-assets-root path/to/the/main/checkout` to resolve ignored calibration images
+without copying them into Git.
 
 Install `backend/requirements-ocr.txt` for MPL's broadcast-name mode. Without
 local OCR, these games remain unresolved instead of using an unsafe role map.

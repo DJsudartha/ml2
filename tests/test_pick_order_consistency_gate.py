@@ -117,7 +117,7 @@ def test_evaluator_fails_closed_without_gold_and_wrong_complete_order(tmp_path):
          "provenance": {"layout_id": row["layout_id"],
                         "layout_validated": True,
                         "automatic_window": True,
-                        "capture_extractor_version": "complete_draft_v10",
+                        "capture_extractor_version": "complete_draft_v11",
                         "video_match_verified": True}}
         for layout in ("m7_world_v1", "mpl_id_v1")
         for i, row in enumerate(g for g in games if g["layout_id"] == layout)
@@ -210,6 +210,162 @@ def test_capture_evidence_rejects_tied_events_and_unverified_elimination(tmp_pat
     assert _run("capture_complete_drafts", *command).returncode != 0
     row = json.loads((output / "report.json").read_text(encoding="utf-8"))["games"][0]
     assert "unverified_game_vod" in row["ambiguity_reasons"]
+
+
+def test_capture_uses_validated_pre_swap_slots_when_lock_timestamps_overlap(tmp_path):
+    evidence = tmp_path / "evidence.json"
+    output = tmp_path / "capture"
+    slots = [f"{team}_pick{i}" for team in ("blue", "red") for i in range(1, 6)]
+    observations = [
+        {
+            "slot": slot,
+            "hero": f"{'B' if slot.startswith('blue') else 'R'}{slot[-1]}",
+            "confidence": 0.97,
+            "source": "broadcast_name",
+            "timestamp_sec": timestamp,
+        }
+        for slot in slots
+        for timestamp in (100.0, 100.6)
+    ]
+    # These timestamps deliberately contain both same-phase ties and animation-
+    # induced reversals. The calibrated pre-swap card positions, not their raw
+    # appearance timestamps, are the chronological order source.
+    timestamps = [10.0, 11.0, 10.8, 13.0, 12.7, 14.0, 15.0, 14.9, 15.0, 16.0]
+    events = [
+        {
+            "slot": f"{team}_pick{order}",
+            "timestamp_sec": timestamps[index],
+            "stable_through_sec": timestamps[index] + 0.5,
+            "placeholder_observed": True,
+            "final_slot_verified": True,
+            "final_artwork_persisted": True,
+        }
+        for index, (team, order, _) in enumerate(PICK_SEQUENCE)
+    ]
+    payload = {
+        "games": [{
+            "raw_game": {
+                "game_id": "calibrated-pre-swap",
+                "blue_picks": [f"B{i}" for i in range(1, 6)],
+                "red_picks": [f"R{i}" for i in range(1, 6)],
+            },
+            "slot_observations": observations,
+            "lock_events": events,
+            "completion": {
+                "timestamp_sec": 100.0,
+                "swap_detected_before_selection": False,
+            },
+            "provenance": {
+                "layout_id": "mpl_id_v1",
+                "layout_version": "synthetic_v1",
+                "layout_validated": True,
+                "slot_semantics": "pre_swap_pick_order",
+                "video_match_verified": True,
+            },
+        }]
+    }
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    command = ("--evidence-json", evidence, "--output-dir", output)
+
+    assert _run("capture_complete_drafts", *command).returncode == 0
+    row = json.loads((output / "report.json").read_text(encoding="utf-8"))["games"][0]
+    assert row["identity_complete"] is True
+    assert row["slot_order_validated"] is True
+    assert row["order_complete"] is True
+    assert len(row["proposed_picks"]) == 10
+    assert row["picks"] == row["proposed_picks"]
+    assert "lock_timestamps_not_used_for_pre_swap_slot_order" in row["advisory_reasons"]
+
+    payload["games"][0]["completion"]["swap_detected_before_selection"] = True
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    assert _run("capture_complete_drafts", *command).returncode != 0
+    row = json.loads((output / "report.json").read_text(encoding="utf-8"))["games"][0]
+    assert row["identity_complete"] is True
+    assert row["slot_order_validated"] is False
+    assert row["order_complete"] is False
+    assert len(row["proposed_picks"]) == 10
+    assert row["picks"] == []
+
+
+def test_capture_exposes_partial_order_and_unresolved_identity_candidates(tmp_path):
+    evidence = tmp_path / "evidence.json"
+    output = tmp_path / "capture"
+    observations = [
+        {
+            "slot": f"{team}_pick{index}",
+            "hero": f"{'B' if team == 'blue' else 'R'}{index}",
+            "confidence": 0.96,
+            "source": "team_portrait_assignment",
+            "observations": 2,
+            "timestamp_sec": 100.0,
+            "last_observed_sec": 100.6,
+        }
+        for team in ("blue", "red")
+        for index in range(1, 6)
+        if not (team == "blue" and index in (4, 5))
+    ]
+    for index in (4, 5):
+        observations.append({
+            "slot": f"blue_pick{index}",
+            "hero": None,
+            "confidence": 0.78,
+            "source": "team_portrait_assignment",
+            "best_candidate": f"B{index}",
+            "top_candidates": [
+                {"hero": f"B{index}", "score": 0.78},
+                {"hero": f"B{9 - index}", "score": 0.77},
+            ],
+            "margin": 0.01,
+            "assignment_margin": 0.008,
+            "reason": "ambiguous_team_assignment",
+        })
+    events = [
+        {
+            "slot": f"{team}_pick{order}",
+            "timestamp_sec": 10.0 + global_index,
+            "stable_through_sec": 10.5 + global_index,
+            "placeholder_observed": True,
+            "final_slot_verified": True,
+            "final_artwork_persisted": True,
+        }
+        for global_index, (team, order, _) in enumerate(PICK_SEQUENCE)
+    ]
+    evidence.write_text(json.dumps({"games": [{
+        "raw_game": {
+            "game_id": "partial-identity",
+            "blue_picks": [f"B{i}" for i in range(1, 6)],
+            "red_picks": [f"R{i}" for i in range(1, 6)],
+        },
+        "slot_observations": observations,
+        "lock_events": events,
+        "completion": {"timestamp_sec": 100.0, "swap_detected_before_selection": False},
+        "provenance": {
+            "layout_id": "m7_world_v1",
+            "layout_version": "synthetic_v1",
+            "layout_validated": True,
+            "slot_semantics": "pre_swap_pick_order",
+            "video_match_verified": True,
+        },
+    }]}), encoding="utf-8")
+
+    result = _run(
+        "capture_complete_drafts",
+        "--evidence-json", evidence,
+        "--output-dir", output,
+    )
+    assert result.returncode != 0
+    row = json.loads((output / "report.json").read_text(encoding="utf-8"))["games"][0]
+    assert row["identity_complete"] is False
+    assert row["slot_order_validated"] is True
+    assert row["order_complete"] is False
+    assert len(row["proposed_picks"]) == 8
+    assert row["picks"] == []
+    unresolved = next(
+        item for item in row["slot_suggestions"] if item["slot"] == "blue_pick4"
+    )
+    assert unresolved["top_candidates"][0] == {"hero": "B4", "score": 0.78}
+    assert unresolved["margin"] == 0.01
+    assert unresolved["assignment_margin"] == 0.008
 
 
 def test_weekly_command_refuses_processing_before_rights_and_accuracy_gate(tmp_path):

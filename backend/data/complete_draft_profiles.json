@@ -1,9 +1,11 @@
 {
   "m7_world_v1": {
-    "version": "m7_completion_v5",
+    "version": "m7_completion_v6",
     "layouts_file": "backend/data/layouts.json",
     "layout_id": "m7_world_v1",
+    "slot_semantics": "pre_swap_pick_order",
     "identity_mode": "visual_reference",
+    "identity_assignment": "team_unique",
     "placeholder_frame": "backend/data/raw/pick_order_suggestions/complete_draft_pilot/probes/0cvJFCCyxwo_76233bc8d14592c9.jpg",
     "role_slot_map": {
       "blue": {"1": "blue_pick1", "2": "blue_pick4", "3": "blue_pick5", "4": "blue_pick3", "5": "blue_pick2"},
@@ -11,8 +13,9 @@
     }
   },
   "mpl_id_v1": {
-    "version": "mpl_id_s18_completion_v6",
+    "version": "mpl_id_s18_completion_v7",
     "identity_mode": "broadcast_names",
+    "slot_semantics": "pre_swap_pick_order",
     "placeholder_frame": "backend/data/raw/pick_order_suggestions/complete_draft_pilot/probes/CGCbVSueZ7c_848d4f1738f7e5f3.jpg",
     "role_slot_map": {
       "blue": {"1": "blue_pick1", "2": "blue_pick2", "3": "blue_pick3", "4": "blue_pick5", "5": "blue_pick4"},

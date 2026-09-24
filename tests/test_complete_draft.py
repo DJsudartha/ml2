@@ -428,6 +428,134 @@ def test_visual_identity_rejects_lower_scoring_duplicate_within_team(monkeypatch
     assert not any(item["slot"] == "blue_pick2" for item in observations)
 
 
+def test_team_portrait_assignment_resolves_duplicate_local_best():
+    from backend.services.data.hero_portrait_matcher import assign_unique_heroes
+
+    scores = {
+        "blue_pick1": {"A": 0.96, "B": 0.88, "C": 0.30, "D": 0.20, "E": 0.10},
+        "blue_pick2": {"A": 0.94, "B": 0.93, "C": 0.25, "D": 0.20, "E": 0.10},
+        "blue_pick3": {"A": 0.20, "B": 0.15, "C": 0.97, "D": 0.25, "E": 0.10},
+        "blue_pick4": {"A": 0.20, "B": 0.15, "C": 0.25, "D": 0.96, "E": 0.10},
+        "blue_pick5": {"A": 0.20, "B": 0.15, "C": 0.25, "D": 0.10, "E": 0.95},
+    }
+
+    result = assign_unique_heroes(
+        scores,
+        ["A", "B", "C", "D", "E"],
+        min_similarity=0.72,
+        min_slot_margin=-0.02,
+        min_team_margin=0.01,
+    )
+
+    assert result["accepted"] is True
+    assert {slot: row["hero"] for slot, row in result["slots"].items()} == {
+        "blue_pick1": "A",
+        "blue_pick2": "B",
+        "blue_pick3": "C",
+        "blue_pick4": "D",
+        "blue_pick5": "E",
+    }
+    assert result["slots"]["blue_pick2"]["top_candidates"][0]["hero"] == "A"
+    assert result["slots"]["blue_pick2"]["margin"] < 0
+
+
+def test_team_portrait_assignment_rejects_ambiguous_team_solution():
+    from backend.services.data.hero_portrait_matcher import assign_unique_heroes
+
+    scores = {
+        "blue_pick1": {"A": 0.90, "B": 0.90},
+        "blue_pick2": {"A": 0.90, "B": 0.90},
+    }
+    result = assign_unique_heroes(
+        scores,
+        ["A", "B"],
+        min_similarity=0.72,
+        min_slot_margin=-0.02,
+        min_team_margin=0.01,
+    )
+
+    assert result["accepted"] is False
+    assert result["reason"] == "ambiguous_team_assignment"
+    assert all(row["hero"] is None for row in result["slots"].values())
+
+
+def test_team_portrait_matching_normalizes_broadcast_lighting_and_alignment():
+    from backend.services.data.hero_portrait_matcher import match_team_portraits
+
+    rng = np.random.default_rng(42)
+    heroes = ["A", "B", "C", "D", "E"]
+    references = {
+        hero: [rng.integers(0, 210, (96, 72, 3), dtype=np.uint8)] for hero in heroes
+    }
+    samples = {}
+    for index, hero in enumerate(heroes, start=1):
+        reference = references[hero][0]
+        shifted = cv2.resize(reference[3:-2, 2:-3], (72, 96))
+        lit = cv2.convertScaleAbs(shifted, alpha=0.82, beta=34)
+        samples[f"blue_pick{index}"] = [lit, lit.copy()]
+
+    result = match_team_portraits(
+        samples,
+        references,
+        min_similarity=0.72,
+        min_slot_margin=-0.02,
+        min_team_margin=0.01,
+    )
+
+    assert result["accepted"] is True
+    assert [result["slots"][f"blue_pick{i}"]["hero"] for i in range(1, 6)] == heroes
+
+
+def test_visual_identity_profile_uses_team_wide_portrait_assignment(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+    import backend.scripts.capture_complete_drafts as command
+
+    rng = np.random.default_rng(7)
+    heroes = [f"Hero{i}" for i in range(1, 11)]
+    references = {
+        hero: rng.integers(0, 210, (96, 72, 3), dtype=np.uint8) for hero in heroes
+    }
+    paths = {}
+    for hero, image in references.items():
+        path = tmp_path / f"{hero}.jpg"
+        cv2.imwrite(str(path), image)
+        paths[hero] = path
+    monkeypatch.setattr(
+        command,
+        "hero_reference_paths",
+        lambda hero, **_: [paths[hero]],
+    )
+    sample = {
+        f"{team}_pick{index}": references[heroes[offset + index - 1]].copy()
+        for team, offset in (("blue", 0), ("red", 5))
+        for index in range(1, 6)
+    }
+    tracker = SimpleNamespace(
+        completion_observations=[(sample, timestamp) for timestamp in (0.0, 0.6, 1.2)]
+    )
+    game = {"blue_picks": heroes[:5], "red_picks": heroes[5:]}
+
+    observations, warnings = command._identity_observations(
+        {
+            "identity_mode": "visual_reference",
+            "identity_assignment": "team_unique",
+        },
+        {},
+        game,
+        tracker,
+        np.zeros((1, 1, 3), np.uint8),
+        {"timestamp_sec": 0.0},
+        gallery_dir=tmp_path / "gallery",
+    )
+
+    assert len(observations) == 10
+    assert {item["hero"] for item in observations} == set(heroes)
+    assert all(len(item["top_candidates"]) == 2 for item in observations)
+    assert "broadcast_art_gallery_incomplete_or_ambiguous" not in warnings
+
+
 def test_broadcast_hero_name_matching_is_team_pool_constrained():
     from backend.services.data.broadcast_hero_names import match_hero_name
 
@@ -461,7 +589,9 @@ def test_command_reuses_completed_order_without_network(monkeypatch, tmp_path):
     import backend.scripts.capture_complete_drafts as command
 
     tracker, empty, heroes = fixture_tracker(monkeypatch)
-    baseline = tmp_path / "empty.jpg"
+    asset_root = tmp_path / "assets"
+    baseline = asset_root / "private-calibration" / "empty.jpg"
+    baseline.parent.mkdir(parents=True)
     cv2.imwrite(str(baseline), np.concatenate([empty] * 10, axis=1))
     manifest = tmp_path / "manifest.json"
     manifest.write_text(
@@ -475,6 +605,8 @@ def test_command_reuses_completed_order_without_network(monkeypatch, tmp_path):
                         "layout_id": "test",
                         "status": "matched",
                         "vod_url": "unused",
+                        "blue_picks": ["A", "B", "C", "D", "E"],
+                        "red_picks": ["F", "G", "H", "I", "J"],
                     }
                 ]
             }
@@ -486,14 +618,13 @@ def test_command_reuses_completed_order_without_network(monkeypatch, tmp_path):
             {
                 "test": {
                     "layout": {},
-                    "placeholder_frame": str(baseline),
+                    "placeholder_frame": "private-calibration/empty.jpg",
                     "role_slot_map": {},
                 }
             }
         )
     )
-    raw_game = {"game_id": "sample"}
-    monkeypatch.setattr(command, "load_raw_games_by_id", lambda _: {"sample": raw_game})
+    monkeypatch.setattr(command, "load_raw_games_by_id", lambda _: {})
     monkeypatch.setattr(command.shutil, "which", lambda _: "ffmpeg")
     monkeypatch.setattr(
         command,
@@ -537,6 +668,8 @@ def test_command_reuses_completed_order_without_network(monkeypatch, tmp_path):
             str(manifest),
             "--profiles",
             str(profiles),
+            "--profile-assets-root",
+            str(asset_root),
             "--output-dir",
             str(tmp_path / "output"),
             "--evidence-mode",
@@ -551,6 +684,40 @@ def test_command_reuses_completed_order_without_network(monkeypatch, tmp_path):
     monkeypatch.setattr(command, "video_info", no_network)
     assert command.main() == 0
     assert not list((tmp_path / "output").rglob("*.jpg"))
+
+
+def test_capture_accepts_only_live_or_documented_manual_vod_verification():
+    import pytest
+    import backend.scripts.capture_complete_drafts as command
+
+    entry = {
+        "game_id": "sample",
+        "video_id": "abcdefghijk",
+        "source_id": "mpl_indonesia",
+    }
+    channels = {"mpl_indonesia": "UC-official"}
+    verification = {
+        "version": 1,
+        "games": [
+            {
+                "game_id": "sample",
+                "video_id": "abcdefghijk",
+                "channel_id": "UC-official",
+                "source_kind": "per_game",
+                "verification_mode": "live",
+                "verified": True,
+                "rejection_reasons": [],
+                "candidate_details": {"match_confidence": 1.0},
+            }
+        ],
+    }
+
+    accepted = command._verified_vod_records(verification, [entry], channels)
+    assert accepted["sample"]["match_confidence"] == 1.0
+
+    verification["games"][0]["verification_mode"] = "fixture"
+    with pytest.raises(ValueError, match="unverified"):
+        command._verified_vod_records(verification, [entry], channels)
 
 
 def test_video_reference_is_a_pool_not_the_pick_order(monkeypatch, tmp_path):
@@ -800,6 +967,9 @@ def test_broadcast_profiles_preserve_reviewed_role_to_screen_order():
         Path("backend/data/complete_draft_profiles.json").read_text(encoding="utf-8")
     )
 
+    assert profiles["m7_world_v1"]["slot_semantics"] == "pre_swap_pick_order"
+    assert profiles["m7_world_v1"]["identity_assignment"] == "team_unique"
+    assert profiles["mpl_id_v1"]["slot_semantics"] == "pre_swap_pick_order"
     assert profiles["m7_world_v1"]["role_slot_map"]["blue"] == {
         "1": "blue_pick1",
         "2": "blue_pick4",
@@ -842,7 +1012,21 @@ def test_crop_evidence_saves_ten_images_without_complete_frame(tmp_path):
         "picks": [
             {"slot": slot, "hero": f"Hero {index}"}
             for index, slot in enumerate(sorted(sample), start=1)
-        ]
+            if slot != "blue_pick1"
+        ],
+        "slot_suggestions": [
+            {
+                "slot": "blue_pick1",
+                "hero": None,
+                "reason": "unrecognized_hero",
+                "best_candidate": "Candidate Hero",
+                "candidate_confidence": 0.78,
+                "top_candidates": [
+                    {"hero": "Local Alternative", "score": 0.79},
+                    {"hero": "Candidate Hero", "score": 0.78},
+                ],
+            }
+        ],
     }
     _persist_evidence(
         suggestion,
@@ -854,7 +1038,17 @@ def test_crop_evidence_saves_ten_images_without_complete_frame(tmp_path):
         evidence_mode="crops",
     )
     assert len(suggestion["review_crops"]) == 10
-    assert len(list(tmp_path.rglob("*.jpg"))) == 10
+    assert Path(suggestion["contact_sheet"]["frame"]).is_file()
+    assert suggestion["contact_sheet"]["sha256"]
+    assert len(suggestion["contact_sheet"]["slots"]) == 10
+    unresolved = next(
+        row
+        for row in suggestion["contact_sheet"]["slots"]
+        if row["slot"] == "blue_pick1"
+    )
+    assert unresolved["best_candidate"] == "Candidate Hero"
+    assert unresolved["confidence"] == 0.78
+    assert len(list(tmp_path.rglob("*.jpg"))) == 11
     assert not (tmp_path / "completed").exists()
 
 

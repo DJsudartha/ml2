@@ -25,6 +25,7 @@ LAYOUT_SOURCES = {
 }
 REQUIRED_GAMES_PER_LAYOUT = 30
 MIN_COMPLETE_PER_LAYOUT = 18
+ACCEPTED_CAPTURE_EXTRACTOR_VERSION = "complete_draft_v11"
 
 
 def _layout_for_game(game: dict[str, Any]) -> str | None:
@@ -238,7 +239,8 @@ def score_holdout(
                 provenance.get("video_match_verified") is True and
                 not provenance.get("manual_window_supplied") and
                 not provenance.get("video_reference_supplied") and
-                provenance.get("capture_extractor_version") == "complete_draft_v10"
+                provenance.get("capture_extractor_version") ==
+                ACCEPTED_CAPTURE_EXTRACTOR_VERSION
             )
             if not route_valid:
                 stats["manual_or_legacy_route_rejected"] += 1

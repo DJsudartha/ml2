@@ -10,6 +10,12 @@ from backend.services.data.complete_draft import (
     accepted_portrait_assignment,
     best_portrait_assignment,
 )
+from backend.services.data.pick_order_results import (
+    evidence_pick_order_result,
+    hero_event_pick_order_result,
+    role_remap_pick_order_result,
+    slot_reveal_pick_order_result,
+)
 from backend.services.data.vod_layouts import crop_slots
 from backend.services.modeling.pick_constants import PICK_SEQUENCE
 
@@ -277,29 +283,27 @@ def suggest_pick_order_from_game_evidence(
         })
     picks = proposed_picks if order_complete else []
     all_reasons = sorted(set(reasons + advisory_reasons))
-    result = {
-        "game_id": raw_game["game_id"],
-        "source": "vod_complete_frame_assignment",
-        "status": "needs_review",
-        "identity_complete": identity_complete,
-        "slot_order_validated": slot_order_validated,
-        "order_complete": order_complete,
-        "confidence": round(float(np.mean([
-            pick["confidence"] for pick in proposed_picks
-        ])) if proposed_picks else 0.0, 4),
-        "notes": "; ".join(all_reasons),
-        "ambiguity_reasons": sorted(set(reasons)),
-        "advisory_reasons": sorted(set(advisory_reasons)),
-        "lock_events": [events_by_slot[slot] for slot in sorted(events_by_slot)],
-        "extractor_version": EXTRACTOR_VERSION,
-        "assignment_method": "per_game_hero_evidence",
-        "slot_suggestions": slot_suggestions,
-        "proposed_picks": proposed_picks,
-        "picks": picks,
-    }
-    if provenance:
-        result["provenance"] = {"extractor_version": EXTRACTOR_VERSION, **provenance}
-    return result
+    return evidence_pick_order_result(
+        game_id=raw_game["game_id"],
+        identity_complete=identity_complete,
+        slot_order_validated=slot_order_validated,
+        order_complete=order_complete,
+        confidence=round(
+            float(np.mean([pick["confidence"] for pick in proposed_picks]))
+            if proposed_picks
+            else 0.0,
+            4,
+        ),
+        notes="; ".join(all_reasons),
+        ambiguity_reasons=sorted(set(reasons)),
+        advisory_reasons=sorted(set(advisory_reasons)),
+        lock_events=[events_by_slot[slot] for slot in sorted(events_by_slot)],
+        extractor_version=EXTRACTOR_VERSION,
+        slot_suggestions=slot_suggestions,
+        proposed_picks=proposed_picks,
+        picks=picks,
+        provenance=provenance,
+    )
 
 
 def suggest_pick_order_from_role_remap(
@@ -404,24 +408,19 @@ def suggest_pick_order_from_role_remap(
         )
         for team, assignment in assignments.items()
     }
-    result = {
-        "game_id": raw_game["game_id"],
-        "source": "vod_complete_frame_assignment",
-        "status": "needs_review",
-        "order_complete": order_complete,
-        "confidence": round(
+    return role_remap_pick_order_result(
+        game_id=raw_game["game_id"],
+        order_complete=order_complete,
+        confidence=round(
             float(np.mean([pick["confidence"] for pick in picks])) if picks else 0.0,
             4,
         ),
-        "notes": "; ".join(reasons),
-        "extractor_version": EXTRACTOR_VERSION,
-        "assignment_method": "same_vod_role_remap",
-        "assignment_diagnostics": diagnostics,
-        "picks": picks,
-    }
-    if provenance:
-        result["provenance"] = {"extractor_version": EXTRACTOR_VERSION, **provenance}
-    return result
+        notes="; ".join(reasons),
+        extractor_version=EXTRACTOR_VERSION,
+        assignment_diagnostics=diagnostics,
+        picks=picks,
+        provenance=provenance,
+    )
 
 
 def load_vod_manifest(path: Path) -> dict[str, Any]:
@@ -519,14 +518,12 @@ def suggest_pick_order_from_slot_reveals(
         if usable_reveals
         else 0.0
     )
-    return {
-        "game_id": raw_game["game_id"],
-        "source": "vod_slot_reveal",
-        "status": "needs_review",
-        "confidence": round(confidence, 4),
-        "notes": "; ".join(warnings),
-        "picks": picks,
-    }
+    return slot_reveal_pick_order_result(
+        game_id=str(raw_game["game_id"]),
+        confidence=round(confidence, 4),
+        notes="; ".join(warnings),
+        picks=picks,
+    )
 
 
 def _crop_mean_abs_diff(current_crop: np.ndarray, baseline_crop: np.ndarray) -> float:
@@ -888,18 +885,11 @@ def suggest_pick_order_from_hero_events(
     confidence = (
         float(np.mean([float(pick["confidence"]) for pick in picks])) if picks else 0.0
     )
-    suggestion = {
-        "game_id": raw_game["game_id"],
-        "source": "vod_hero_identity",
-        "status": "needs_review",
-        "confidence": round(confidence, 4),
-        "notes": "; ".join(warnings),
-        "extractor_version": EXTRACTOR_VERSION,
-        "picks": picks,
-    }
-    if provenance:
-        suggestion["provenance"] = {
-            "extractor_version": EXTRACTOR_VERSION,
-            **dict(provenance),
-        }
-    return suggestion
+    return hero_event_pick_order_result(
+        game_id=str(raw_game["game_id"]),
+        confidence=round(confidence, 4),
+        notes="; ".join(warnings),
+        extractor_version=EXTRACTOR_VERSION,
+        picks=picks,
+        provenance=provenance,
+    )

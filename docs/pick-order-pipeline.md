@@ -14,21 +14,28 @@
   resumable jobs. No dataset rebuild or model training.
 - `data/complete_draft.py`: in-memory first-settled pre-swap detection, calibrated
   player-card separators, and completion-only same-VOD portrait-pool matching.
+- `data/complete_draft_vod.py`: game-level VOD verification, resumable input
+  identities, and bounded decoder command construction.
+- `data/complete_draft_identity.py`: layout resolution, completion-tracker setup,
+  and time-separated in-memory identity observations.
 - `data/broadcast_hero_names.py`: in-memory OCR for supported vertical MPL hero
   labels, restricted to Liquipedia's five final heroes per team.
 - `data/hero_portrait_matcher.py`: normalized temporal portrait scoring and a
   conservative one-to-one team assignment for M7 artwork.
 - `data/vod_pick_order_suggestions.py`: direct per-game identity evidence and
   guarded one-missing-name elimination; the fixed role-remap path is legacy.
+- `data/pick_order_results.py`: canonical result records and constructors shared
+  by capture, suggestion, and weekly orchestration paths.
+- `data/pick_order_review_artifacts.py`: crop/contact-sheet persistence and
+  capture report serialization; full decoded frames remain in memory.
 - `data/pick_order_consistency.py`: fixed holdout selection, exact-order metrics,
   blind-label audit, official-VOD audit, and fail-closed acceptance thresholds.
 - `data/pick_order_gallery_release.py`: immutable hashes for the authorized private
   gallery; holdout crops cannot be added before scoring.
 - `data/pick_order_media_rights.py`: local execution guard for authorized sources;
   it records evidence but does not make a legal determination.
-- `scripts/capture_complete_drafts.py`: crop-only review bundles and labeled ten-crop
-  contact sheets from bounded streams; no full frame is retained unless explicitly
-  requested.
+- `scripts/capture_complete_drafts.py`: thin CLI and per-game orchestration for
+  crop-only review bundles; no full frame is retained unless explicitly requested.
 - `scripts/prepare_pick_order_holdout.py`: metadata-only, deterministic 30-game
   selection for each layout, excluding development matches.
 - `scripts/verify_pick_order_holdout_vods.py`: approved-uploader and game-title

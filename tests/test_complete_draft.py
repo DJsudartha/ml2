@@ -393,7 +393,7 @@ def test_verified_complete_frame_can_infer_one_unread_name_from_team_set():
 
 def test_visual_identity_rejects_lower_scoring_duplicate_within_team(monkeypatch):
     from types import SimpleNamespace
-    import backend.scripts.capture_complete_drafts as command
+    import backend.services.data.complete_draft_identity as identity
 
     scores = {
         1: ("A", 0.95), 2: ("A", 0.75), 3: ("C", 0.93),
@@ -402,7 +402,7 @@ def test_visual_identity_rejects_lower_scoring_duplicate_within_team(monkeypatch
         9: ("I", 0.92), 10: ("J", 0.91),
     }
     monkeypatch.setattr(
-        command, "recognize_hero_crop",
+        identity, "recognize_hero_crop",
         lambda crop, candidates: {
             "hero": scores[int(crop[0, 0, 0])][0],
             "confidence": scores[int(crop[0, 0, 0])][1],
@@ -420,7 +420,7 @@ def test_visual_identity_rejects_lower_scoring_duplicate_within_team(monkeypatch
         "blue_picks": ["A", "B", "C", "D", "E"],
         "red_picks": ["F", "G", "H", "I", "J"],
     }
-    observations, _ = command._identity_observations(
+    observations, _ = identity.identity_observations(
         {"identity_mode": "visual_reference"}, {}, game, tracker,
         np.zeros((1, 1, 3), np.uint8), {"timestamp_sec": 0}
     )
@@ -510,7 +510,7 @@ def test_visual_identity_profile_uses_team_wide_portrait_assignment(
     monkeypatch, tmp_path
 ):
     from types import SimpleNamespace
-    import backend.scripts.capture_complete_drafts as command
+    import backend.services.data.complete_draft_identity as identity
 
     rng = np.random.default_rng(7)
     heroes = [f"Hero{i}" for i in range(1, 11)]
@@ -523,7 +523,7 @@ def test_visual_identity_profile_uses_team_wide_portrait_assignment(
         cv2.imwrite(str(path), image)
         paths[hero] = path
     monkeypatch.setattr(
-        command,
+        identity,
         "hero_reference_paths",
         lambda hero, **_: [paths[hero]],
     )
@@ -537,7 +537,7 @@ def test_visual_identity_profile_uses_team_wide_portrait_assignment(
     )
     game = {"blue_picks": heroes[:5], "red_picks": heroes[5:]}
 
-    observations, warnings = command._identity_observations(
+    observations, warnings = identity.identity_observations(
         {
             "identity_mode": "visual_reference",
             "identity_assignment": "team_unique",
@@ -566,10 +566,13 @@ def test_broadcast_hero_name_matching_is_team_pool_constrained():
 
 def test_confirmed_gallery_change_invalidates_capture_job(monkeypatch, tmp_path):
     import backend.scripts.capture_complete_drafts as command
+    import backend.services.data.complete_draft_vod as capture_vod
 
     reference = tmp_path / "confirmed.jpg"
     reference.write_bytes(b"first")
-    monkeypatch.setattr(command, "hero_reference_paths", lambda hero: [reference])
+    monkeypatch.setattr(
+        capture_vod, "hero_reference_paths", lambda hero, **_: [reference]
+    )
     kwargs = {
         "start": 1,
         "duration": 60,
@@ -635,7 +638,7 @@ def test_command_reuses_completed_order_without_network(monkeypatch, tmp_path):
             "fps": 60,
         },
     )
-    monkeypatch.setattr(command, "CompletionTracker", lambda *args, **kwargs: tracker)
+    monkeypatch.setattr(command, "_tracker", lambda *args, **kwargs: tracker)
     images = [np.concatenate(heroes[:9] + [empty], axis=1)] + [
         np.concatenate(heroes, axis=1)
     ] * 3

@@ -2,12 +2,9 @@
 
 import argparse
 from contextlib import closing
-import hashlib
 import json
 from pathlib import Path
-import re
 import shutil
-import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,152 +12,47 @@ EXTRACTOR_VERSION = "complete_draft_v11"
 sys.path.insert(0, str(ROOT))
 from backend.services.common.file_utils import load_json, save_json  # noqa: E402
 from backend.services.data.complete_draft import (  # noqa: E402
-    CompletionTracker,
-    ReferenceCompletionTracker,
-    analysis_image,
     decoded_frames,
     find_complete_frame,
-    portrait_similarity,
 )
-from backend.services.data.broadcast_hero_names import (  # noqa: E402
-    read_broadcast_hero_names,
+from backend.services.data.complete_draft_identity import (  # noqa: E402
+    identity_observations as _identity_observations,
+    make_completion_tracker as _tracker,
+    profile_with_asset_root as _profile_with_asset_root,
+    resolve_layout as _layout,
+    sample_identity_frames as _sample_identity_frames,
+)
+from backend.services.data.complete_draft_vod import (  # noqa: E402
+    UnverifiedGameVodError,
+    decoder_command as _decoder_command,
+    input_identity as _capture_input_identity,
+    verified_vod_records as _verified_vod_records,
+    verify_game_video as _verify_game_video,
+    video_info,
 )
 from backend.services.data.raw_games import (  # noqa: E402
     RAW_TOURNAMENTS_DIR,
     load_raw_games_by_id,
 )
 from backend.services.data.liquipedia_vods import parse_youtube_vod  # noqa: E402
-from backend.services.data.hero_portrait_matcher import (  # noqa: E402
-    match_team_portraits,
-)
 from backend.services.data.pick_order_media_rights import require_media_rights  # noqa: E402
 from backend.services.data.pick_order_gallery_release import (  # noqa: E402
     validate_gallery_release,
 )
-from backend.services.data.vod_sources import (  # noqa: E402
-    VideoRecord,
-    score_video_for_game,
+from backend.services.data.pick_order_results import (  # noqa: E402
+    failed_pick_order_result,
+    incomplete_pick_order_result,
+)
+from backend.services.data.pick_order_review_artifacts import (  # noqa: E402
+    cached_evidence_exists as _cached_evidence_exists,
+    capture_report_payload,
+    persist_evidence as _persist_evidence,
+    write_image as _write_image,
 )
 from backend.services.data.vod_pick_order_suggestions import (  # noqa: E402
     HERO_REFERENCE_GALLERY_DIR,
-    hero_reference_paths,
-    recognize_hero_crop,
     suggest_pick_order_from_game_evidence,
 )
-
-
-def video_info(url):
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "yt_dlp",
-                "--dump-single-json",
-                "--skip-download",
-                "--no-warnings",
-                "--socket-timeout",
-                "15",
-                "--retries",
-                "1",
-                "--no-playlist",
-                "-f",
-                "bestvideo[height<=720][protocol=m3u8_native][vcodec^=avc1]/"
-                "bestvideo[height<=720][protocol=m3u8_native]/bestvideo[height<=720]",
-                url,
-            ],
-            capture_output=True,
-            timeout=60,
-            check=True,
-        )
-        return json.loads(result.stdout)
-    except (subprocess.SubprocessError, json.JSONDecodeError):
-        raise RuntimeError("Video metadata unavailable within timeout") from None
-
-
-class UnverifiedGameVodError(ValueError):
-    pass
-
-
-def _verified_vod_records(payload, entries, channels):
-    """Validate reusable live/manual per-game VOD verification for selected games."""
-    if not isinstance(payload, dict) or payload.get("version") != 1 or not isinstance(
-        payload.get("games"), list
-    ):
-        raise ValueError("VOD verification must contain a version 1 games list")
-    rows = payload["games"]
-    if any(not isinstance(row, dict) for row in rows):
-        raise ValueError("Each VOD verification game must be an object")
-    if len({row.get("game_id") for row in rows}) != len(rows):
-        raise ValueError("VOD verification contains duplicate game IDs")
-    by_id = {row.get("game_id"): row for row in rows}
-    accepted = {}
-    invalid = []
-    for entry in entries:
-        row = by_id.get(entry["game_id"], {})
-        mode = row.get("verification_mode")
-        manual_ok = (
-            mode == "manual"
-            and row.get("reviewer")
-            and row.get("verification_evidence")
-        )
-        if not (
-            row.get("verified")
-            and (mode == "live" or manual_ok)
-            and row.get("video_id") == entry.get("video_id")
-            and row.get("channel_id") == channels.get(entry.get("source_id"))
-            and row.get("source_kind") == "per_game"
-            and not row.get("rejection_reasons")
-        ):
-            invalid.append(entry["game_id"])
-            continue
-        details = dict(row.get("candidate_details") or {})
-        details.setdefault("match_confidence", 1.0)
-        details["verification_mode"] = mode
-        accepted[entry["game_id"]] = details
-    if invalid:
-        raise ValueError(
-            f"VOD verification leaves {len(invalid)} selected games unverified"
-        )
-    return accepted
-
-
-def _verify_game_video(info, raw_game, entry, source_registry):
-    """LP association and uploader alone cannot prove the correct game video."""
-    source = next(
-        (item for item in source_registry["sources"]
-         if item["source_id"] == entry.get("source_id")), None
-    )
-    if source is None:
-        raise UnverifiedGameVodError("unknown_official_video_source")
-    raw_date = str(info.get("upload_date") or "")
-    published = (
-        f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}T00:00:00Z"
-        if len(raw_date) == 8 and raw_date.isdigit() else ""
-    )
-    candidate = score_video_for_game(
-        raw_game,
-        VideoRecord(
-            video_id=str(info.get("id") or ""),
-            channel_id=str(info.get("channel_id") or ""),
-            title=str(info.get("title") or ""),
-            description=str(info.get("description") or ""),
-            published_at=published,
-            duration_sec=int(info.get("duration") or 0),
-            actual_start_time=None,
-            source_id=source["source_id"],
-        ),
-        source,
-        source_registry.get("team_aliases", {}),
-    )
-    if (
-        candidate["source_kind"] != "per_game" or
-        candidate["match_confidence"] < 0.85 or
-        candidate["rejection_reasons"] or
-        info.get("id") != entry.get("video_id")
-    ):
-        raise UnverifiedGameVodError("unverified_game_video_metadata")
-    return candidate
 
 
 def input_identity(
@@ -177,500 +69,40 @@ def input_identity(
     tail_sec=20,
     gallery_dir=HERO_REFERENCE_GALLERY_DIR,
 ):
-    """Invalidate results when media, calibration, data or scan bounds change."""
-    files = {}
-    for path in (
-        profile.get("placeholder_frame"),
-        profile.get("layouts_file"),
-        (reference or {}).get("frame"),
-    ):
-        if path:
-            files[str(path)] = (
-                hashlib.sha256(Path(path).read_bytes()).hexdigest()
-                if Path(path).is_file()
-                else None
-            )
-    if raw_game:
-        for team in ("blue", "red"):
-            for hero in raw_game.get(f"{team}_picks", []):
-                references = (
-                    hero_reference_paths(str(hero))
-                    if gallery_dir == HERO_REFERENCE_GALLERY_DIR else
-                    hero_reference_paths(str(hero), gallery_dir=gallery_dir)
-                )
-                for path in references:
-                    files[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-    payload = [
+    """Compatibility facade that injects this command's extractor version."""
+    return _capture_input_identity(
         entry,
         profile,
         reference,
-        raw_game,
-        files,
-        start,
-        duration,
-        probe,
-        evidence_mode,
-        tail_sec,
-        vod_verification,
-        EXTRACTOR_VERSION,
-    ]
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
-
-
-def _safe_name(value):
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_")
-
-
-def _write_image(path, image):
-    import cv2
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.stem + ".partial.jpg")
-    try:
-        if not cv2.imwrite(str(temporary), image):
-            raise OSError(f"Unable to write evidence image {path}")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _review_contact_sheet(first_crops, suggestion):
-    import cv2
-    import numpy as np
-
-    tile_width, tile_height = 200, 170
-    image_height = 118
-    canvas = np.full((tile_height * 2, tile_width * 5, 3), 24, np.uint8)
-    rows_by_slot = {}
-    for field in ("slot_suggestions", "proposed_picks", "picks"):
-        for row in suggestion.get(field, []):
-            if row.get("slot"):
-                rows_by_slot[row["slot"]] = row
-    metadata = []
-    for row_index, team in enumerate(("blue", "red")):
-        for column, pick_index in enumerate(range(1, 6)):
-            slot = f"{team}_pick{pick_index}"
-            crop = first_crops.get(slot)
-            if crop is None or crop.size == 0:
-                continue
-            height, width = crop.shape[:2]
-            scale = min((tile_width - 12) / width, image_height / height)
-            resized = cv2.resize(
-                crop,
-                (max(1, round(width * scale)), max(1, round(height * scale))),
-                interpolation=cv2.INTER_AREA,
-            )
-            tile_x = column * tile_width
-            tile_y = row_index * tile_height
-            x = tile_x + (tile_width - resized.shape[1]) // 2
-            y = tile_y + 4
-            canvas[y : y + resized.shape[0], x : x + resized.shape[1]] = resized
-            identity = rows_by_slot.get(slot, {})
-            hero = identity.get("hero")
-            if not hero:
-                candidates = identity.get("top_candidates") or []
-                candidate = identity.get("best_candidate")
-                if not candidate and candidates:
-                    candidate = candidates[0]["hero"]
-                hero = f"? {candidate}" if candidate else "? unresolved"
-            confidence = identity.get("confidence")
-            if confidence is None:
-                confidence = identity.get("candidate_confidence")
-            cv2.putText(
-                canvas,
-                f"{team[0].upper()}{pick_index} {str(hero)[:20]}",
-                (tile_x + 6, tile_y + 138),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.43,
-                (235, 235, 235),
-                1,
-                cv2.LINE_AA,
-            )
-            if confidence is not None:
-                cv2.putText(
-                    canvas,
-                    f"confidence {float(confidence):.3f}",
-                    (tile_x + 6, tile_y + 158),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.38,
-                    (170, 205, 255) if team == "blue" else (190, 180, 255),
-                    1,
-                    cv2.LINE_AA,
-                )
-            metadata.append({
-                "slot": slot,
-                "hero": identity.get("hero"),
-                "best_candidate": identity.get("best_candidate"),
-                "confidence": confidence,
-                "reason": identity.get("reason"),
-                "top_candidates": identity.get("top_candidates", []),
-                "margin": identity.get("margin"),
-                "assignment_margin": identity.get("assignment_margin"),
-            })
-    return canvas, metadata
-
-
-def _persist_evidence(
-    suggestion,
-    first_frame,
-    first_crops,
-    *,
-    output_dir,
-    video_id,
-    identity,
-    evidence_mode,
-    lock_event_crops=None,
-    lock_events=None,
-):
-    if evidence_mode == "none":
-        suggestion["review_crops"] = []
-        return
-    if evidence_mode == "frame":
-        path = output_dir / "completed" / f"{video_id}_{identity}.jpg"
-        _write_image(path, first_frame)
-        resolved = str(path.resolve())
-        suggestion["frame"] = resolved
-        for pick in suggestion.get("picks", []):
-            pick["evidence_frame"] = resolved
-            pick["evidence_frames"] = [resolved]
-        return
-
-    evidence_dir = output_dir / "evidence" / f"{video_id}_{identity}"
-    records_by_slot = {}
-    for field in ("slot_suggestions", "proposed_picks", "picks"):
-        for record in suggestion.get(field, []):
-            if record.get("slot"):
-                records_by_slot.setdefault(record["slot"], []).append(record)
-    review_crops = []
-    for slot in sorted(first_crops):
-        path = evidence_dir / f"{slot}_settled.jpg"
-        _write_image(path, first_crops[slot])
-        resolved = str(path.resolve())
-        review_crops.append(
-            {
-                "slot": slot,
-                "phase": "first_settled_pre_swap",
-                "frame": resolved,
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            }
-        )
-        for record in records_by_slot.get(slot, []):
-            record["evidence_frame"] = resolved
-            record["evidence_frames"] = [resolved]
-    suggestion["review_crops"] = review_crops
-    contact_sheet, contact_slots = _review_contact_sheet(first_crops, suggestion)
-    contact_path = evidence_dir / "review_contact_sheet.jpg"
-    _write_image(contact_path, contact_sheet)
-    suggestion["contact_sheet"] = {
-        "frame": str(contact_path.resolve()),
-        "sha256": hashlib.sha256(contact_path.read_bytes()).hexdigest(),
-        "slots": contact_slots,
-    }
-    events = {item["slot"]: item for item in lock_events or []}
-    sequences = []
-    for slot, crops in sorted((lock_event_crops or {}).items()):
-        event = events.get(slot, {})
-        for phase, crop, timestamp in (
-            ("first_visible", crops[0], event.get("timestamp_sec")),
-            ("stable_locked", crops[1], event.get("stable_through_sec")),
-        ):
-            path = evidence_dir / f"{slot}_{phase}.jpg"
-            _write_image(path, crop)
-            sequences.append({
-                "slot": slot, "phase": phase, "timestamp_sec": timestamp,
-                "frame": str(path.resolve()),
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            })
-    suggestion["review_sequences"] = sequences
-
-
-def _cached_evidence_exists(row, evidence_mode):
-    if evidence_mode == "none":
-        return True
-    if evidence_mode == "frame":
-        return bool(row.get("frame") and Path(row["frame"]).is_file())
-    crops = row.get("review_crops", [])
-    contact_sheet = row.get("contact_sheet", {})
-    return len(crops) == 10 and all(
-        Path(crop.get("frame", "")).is_file() for crop in crops
-    ) and Path(contact_sheet.get("frame", "")).is_file()
-
-
-def _layout(profile):
-    if profile.get("layout") is not None:
-        return profile["layout"]
-    return load_json(Path(profile["layouts_file"]))["layouts"][profile["layout_id"]]
-
-
-def _profile_with_asset_root(profile, asset_root):
-    resolved = dict(profile)
-    if asset_root is None:
-        return resolved
-    for field in ("placeholder_frame", "layouts_file"):
-        configured = resolved.get(field)
-        if not configured:
-            continue
-        configured_path = Path(configured)
-        if configured_path.is_absolute() or configured_path.is_file():
-            continue
-        candidate = asset_root / configured_path
-        if candidate.is_file():
-            resolved[field] = str(candidate)
-    return resolved
-
-
-def _tracker(layout, baseline, reference, source_fps):
-    if reference:
-        import cv2
-
-        image = cv2.imread(reference["frame"])
-        if image is None:
-            raise ValueError("Unreadable verified hero-reference frame")
-        return ReferenceCompletionTracker(
-            layout, image, minimum_frames=3, calibration_frame=baseline
-        )
-    return CompletionTracker(
-        layout,
-        baseline,
-        minimum_frames=max(3, round(float(source_fps) * 0.15)),
+        start=start,
+        duration=duration,
+        probe=probe,
+        extractor_version=EXTRACTOR_VERSION,
+        raw_game=raw_game,
+        vod_verification=vod_verification,
+        evidence_mode=evidence_mode,
+        tail_sec=tail_sec,
+        gallery_dir=gallery_dir,
     )
 
 
-def _sample_identity_frames(frames, tracker, first_frame, completion):
-    """Take sparse in-memory observations; stop on role swaps or lost geometry."""
-    samples = [(first_frame, completion["timestamp_sec"])]
-    first_crops = tracker.pick_crops(first_frame)
-    last_sample = float(completion["timestamp_sec"])
-    deadline = last_sample + 2.5
-    for frame, timestamp in frames:
-        if timestamp > deadline:
-            break
-        if timestamp - last_sample < 0.5:
-            continue
-        analysis = analysis_image(frame)
-        geometry_ok, _ = tracker.settled_card_geometry(analysis)
-        current = tracker.pick_crops(frame)
-        if not geometry_ok or any(
-            portrait_similarity(first_crops[slot], current[slot]) < 0.65
-            for slot in first_crops
-        ):
-            return samples, ["post_completion_swap_or_layout_change"]
-        samples.append((frame, timestamp))
-        last_sample = timestamp
-        if len(samples) >= 3:
-            break
-    return samples, ([] if len(samples) >= 2 else ["identity_samples_not_time_separated"])
-
-
-def _identity_observations(
-    profile, layout, raw_game, tracker, first_frame, completion,
-    sampled_frames=None, gallery_dir=HERO_REFERENCE_GALLERY_DIR,
-):
-    """Recognize the settled cards in memory; require repeated agreement."""
-    mode = profile.get("identity_mode", "visual_reference")
-    observations = []
-    warnings = []
-    if mode == "broadcast_names":
-        try:
-            from rapidocr import RapidOCR
-        except ImportError:
-            return [], ["broadcast_name_ocr_dependency_missing"]
-        engine = RapidOCR()
-        frames = sampled_frames or tracker.completion_frames or [
-            (first_frame, completion["timestamp_sec"])
-        ]
-        for frame, timestamp in frames:
-            observations.extend(
-                read_broadcast_hero_names(
-                    frame, layout, raw_game, engine, timestamp_sec=timestamp
-                )
-            )
-    elif mode == "visual_reference":
-        if sampled_frames:
-            samples = [
-                (tracker.pick_crops(frame), timestamp)
-                for frame, timestamp in sampled_frames
-            ]
-        else:
-            samples = getattr(tracker, "completion_observations", [])
-        if profile.get("identity_assignment") == "team_unique":
-            cv2 = __import__("cv2")
-            timestamps = sorted({float(timestamp) for _, timestamp in samples})
-            for team in ("blue", "red"):
-                candidates = [str(hero) for hero in raw_game.get(f"{team}_picks", [])]
-                references = {}
-                for hero in candidates:
-                    loaded = []
-                    for path in hero_reference_paths(hero, gallery_dir=gallery_dir):
-                        image = cv2.imread(str(path))
-                        if image is not None:
-                            loaded.append(image)
-                    references[hero] = loaded
-                samples_by_slot = {
-                    f"{team}_pick{index}": [
-                        crops[f"{team}_pick{index}"]
-                        for crops, _ in samples
-                        if f"{team}_pick{index}" in crops
-                    ]
-                    for index in range(1, 6)
-                }
-                assignment = match_team_portraits(samples_by_slot, references)
-                if not assignment.get("accepted"):
-                    warnings.append(
-                        f"{team}_team_portrait_assignment_"
-                        f"{assignment.get('reason', 'rejected')}"
-                    )
-                for slot, match in assignment.get("slots", {}).items():
-                    hero = match.get("hero")
-                    observations.append({
-                        "slot": slot,
-                        "hero": hero,
-                        "confidence": (
-                            max(0.8, float(match.get("confidence", 0.0)))
-                            if hero else float(match.get("confidence", 0.0))
-                        ),
-                        "source": "team_portrait_assignment",
-                        "observations": int(match.get("observations", 0)),
-                        "timestamp_sec": timestamps[0] if timestamps else None,
-                        "last_observed_sec": timestamps[-1] if timestamps else None,
-                        "best_candidate": match.get("assigned_candidate"),
-                        "top_candidates": match.get("top_candidates", []),
-                        "margin": match.get("margin"),
-                        "assignment_margin": match.get("team_margin"),
-                        "reason": match.get("reason"),
-                    })
-            if len([item for item in observations if item.get("hero")]) < 10:
-                warnings.append("broadcast_art_gallery_incomplete_or_ambiguous")
-            return observations, warnings
-        for sample, timestamp in samples:
-            for slot, crop in sample.items():
-                team = slot.split("_")[0]
-                candidates = list(raw_game.get(f"{team}_picks", []))
-                match = (
-                    recognize_hero_crop(crop, candidates)
-                    if gallery_dir == HERO_REFERENCE_GALLERY_DIR else
-                    recognize_hero_crop(crop, candidates, gallery_dir=gallery_dir)
-                )
-                if match.get("hero"):
-                    observations.append({
-                        "slot": slot,
-                        "hero": match["hero"],
-                        "confidence": match["confidence"],
-                        "source": "canonical_or_confirmed_gallery",
-                        "timestamp_sec": timestamp,
-                    })
-    else:
-        raise ValueError(f"Unsupported game identity mode {mode}")
-
-    grouped = {}
-    for observation in observations:
-        key = (observation["slot"], observation["hero"])
-        grouped.setdefault(key, []).append(observation)
-    stable = []
-    for (slot, hero), seen in grouped.items():
-        times = sorted({float(observation["timestamp_sec"])
-                        for observation in seen})
-        if len(times) < 2 or times[-1] - times[0] < 0.4:
-            continue
-        stable.append({
-            "slot": slot,
-            "hero": hero,
-            "confidence": sum(float(item["confidence"]) for item in seen) / len(seen),
-            "source": seen[0]["source"],
-            "observations": len(seen),
-            "timestamp_sec": times[0],
-            "last_observed_sec": times[-1],
-        })
-    if mode == "visual_reference":
-        rejected_slots = set()
-        for team in ("blue", "red"):
-            for hero in raw_game.get(f"{team}_picks", []):
-                duplicates = sorted(
-                    (item for item in stable
-                     if item["slot"].startswith(f"{team}_")
-                     and item["hero"] == hero),
-                    key=lambda item: item["confidence"],
-                    reverse=True,
-                )
-                if len(duplicates) < 2:
-                    continue
-                # One hero cannot occupy two pick cards on the same team.
-                # Keep a clear stronger observation; otherwise reject both.
-                keep = 1 if duplicates[0]["confidence"] - duplicates[1]["confidence"] >= 0.1 else 0
-                rejected_slots.update(item["slot"] for item in duplicates[keep:])
-                warnings.append(f"{team}_duplicate_visual_identity_{hero}")
-        stable = [item for item in stable if item["slot"] not in rejected_slots]
-    if mode == "visual_reference" and len(stable) < 10:
-        warnings.append("broadcast_art_gallery_incomplete_or_ambiguous")
-    return stable, warnings
-
-
-def _decoder_command(ffmpeg, stream_url, start, duration, *, one_frame=False):
-    command = [
-        ffmpeg,
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "info",
-        "-rw_timeout",
-        "15000000",
-        "-threads",
-        "2",
-        "-ss",
-        str(start),
-        "-i",
-        stream_url,
-        "-t",
-        str(duration),
-        "-an",
-        "-sn",
-        "-vf",
-        "showinfo",
-        "-fps_mode",
-        "passthrough",
-        "-f",
-        "image2pipe",
-        "-c:v",
-        "mjpeg",
-        "-threads",
-        "1",
-        "-q:v",
-        "2",
-        "pipe:1",
-    ]
-    if one_frame:
-        command[-1:-1] = ["-frames:v", "1"]
-    return command
-
-
 def _incomplete_suggestion(game_id, reason, completion=None, tracker=None):
-    return {
-        **(completion or {}),
-        "game_id": game_id,
-        "source": "vod_complete_frame_assignment",
-        "status": "needs_review",
-        "identity_complete": False,
-        "slot_order_validated": False,
-        "order_complete": False,
-        "confidence": 0.0,
-        "notes": reason,
-        "extractor_version": EXTRACTOR_VERSION,
-        "assignment_method": "per_game_hero_evidence",
-        "ambiguity_reasons": [reason],
-        "advisory_reasons": [],
-        "detection_diagnostics": (
+    return incomplete_pick_order_result(
+        game_id=game_id,
+        reason=reason,
+        extractor_version=EXTRACTOR_VERSION,
+        completion=completion,
+        detection_diagnostics=(
             {
                 "frames_examined": tracker.frames_examined,
                 "anchor_frames": tracker.anchor_frames,
                 "maximum_filled": tracker.maximum_filled,
                 "swap_seen": tracker.swap_seen,
             }
-            if tracker is not None else None
+            if tracker is not None
+            else None
         ),
-        "slot_suggestions": [],
-        "proposed_picks": [],
-        "picks": [],
-    }
+    )
 
 
 def _selected_entries(args):
@@ -714,20 +146,8 @@ def _manifest_game(entry):
 
 
 def _report_payload(rows, requested_games):
-    return {
-        "version": 1,
-        "extractor_version": EXTRACTOR_VERSION,
-        "counts": {
-            "requested_games": requested_games,
-            "complete_orders": sum(bool(row.get("order_complete")) for row in rows),
-            "needs_review": sum(row.get("status") == "needs_review" for row in rows),
-            "failed": sum(row.get("status") == "failed" for row in rows),
-            "evidence_crops": sum(len(row.get("review_crops", [])) for row in rows),
-            "full_frames": sum(bool(row.get("frame")) for row in rows),
-        },
-        "games": rows,
-        "requested_games": requested_games,
-    }
+    """Compatibility facade for the capture command's stable report helper."""
+    return capture_report_payload(rows, requested_games, EXTRACTOR_VERSION)
 
 
 def _review_import(args):
@@ -1095,7 +515,11 @@ def main():
         except UnverifiedGameVodError as exc:
             row.update(_incomplete_suggestion(entry["game_id"], str(exc)))
         except Exception as exc:
-            row.update(status="failed", order_complete=False, reason=type(exc).__name__)
+            row.update(
+                failed_pick_order_result(
+                    game_id=entry["game_id"], reason=type(exc).__name__
+                )
+            )
         rows.append(row)
         save_json(report_path, _report_payload(rows, len(entries)))
         detail = (

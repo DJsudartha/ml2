@@ -20,6 +20,9 @@ from backend.services.data.raw_games import RAW_TOURNAMENTS_DIR, load_raw_games 
 from backend.services.data.vod_pipeline import DEFAULT_RESULTS_DIR, DEFAULT_REVIEW_PATH  # noqa: E402
 from backend.services.data.pick_order_gallery_release import validate_gallery_release  # noqa: E402
 from backend.services.data.pick_order_media_rights import require_media_rights  # noqa: E402
+from backend.services.data.pick_order_results import (  # noqa: E402
+    failed_pick_order_result,
+)
 from backend.services.data.vod_pick_order_suggestions import (  # noqa: E402
     HERO_REFERENCE_GALLERY_DIR,
 )
@@ -150,11 +153,11 @@ def main() -> int:
                     } and attempt < 2
                 ):
                     return row
-        return {
-            "game_id": entry["game_id"], "video_id": entry["video_id"],
-            "status": "failed", "order_complete": False,
-            "reason": f"capture_exit_{result.returncode if result else 'unknown'}",
-        }
+        return failed_pick_order_result(
+            game_id=entry["game_id"],
+            video_id=entry["video_id"],
+            reason=f"capture_exit_{result.returncode if result else 'unknown'}",
+        )
 
     with ThreadPoolExecutor(max_workers=min(
         args.max_vod_streams, args.max_inference_workers

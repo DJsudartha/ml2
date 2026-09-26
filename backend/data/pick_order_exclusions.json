@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series1::game1::1",
+      "liquipedia_match_id": "M7KNOCKOUT_R01-M002",
+      "layout_id": "m7_world_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series3::game1::2",
+      "liquipedia_match_id": "M7KNOCKOUT_R01-M004",
+      "layout_id": "m7_world_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series5::game1::1",
+      "liquipedia_match_id": "M7KNOCKOUT_R01-M003",
+      "layout_id": "m7_world_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series6::game1::1",
+      "liquipedia_match_id": "M7KNOCKOUT_R01-M001",
+      "layout_id": "m7_world_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series8::game1::2",
+      "liquipedia_match_id": "M7KNOCKOUT_R02-M002",
+      "layout_id": "m7_world_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series14::game1::3",
+      "liquipedia_match_id": "M7KNOCKOUT_R01-M005",
+      "layout_id": "m7_world_v1",
+      "reason": "smoke_test",
+      "source": "consistency_holdout/smoke_v11_m7/report.json"
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series1::game1::1",
+      "liquipedia_match_id": "MPLIDS18W1_0001",
+      "layout_id": "mpl_id_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series3::game1::1",
+      "liquipedia_match_id": "MPLIDS18W1_0002",
+      "layout_id": "mpl_id_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series5::game1::1",
+      "liquipedia_match_id": "MPLIDS18W1_0003",
+      "layout_id": "mpl_id_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series7::game1::1",
+      "liquipedia_match_id": "MPLIDS18W1_0004",
+      "layout_id": "mpl_id_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series8::game1::1",
+      "liquipedia_match_id": "MPLIDS18W1_0005",
+      "layout_id": "mpl_id_v1",
+      "reason": "development",
+      "source": "complete_draft_pilot/manifest.json"
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series10::game1::1",
+      "liquipedia_match_id": "MPLIDS18W1_0006",
+      "layout_id": "mpl_id_v1",
+      "reason": "smoke_test",
+      "source": "consistency_holdout/smoke_v11_mpl/report.json"
+    }
+  ]
+}

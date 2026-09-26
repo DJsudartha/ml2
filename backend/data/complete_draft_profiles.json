@@ -1,0 +1,54 @@
+{
+  "m7_world_v1": {
+    "version": "m7_completion_v6",
+    "layouts_file": "backend/data/layouts.json",
+    "layout_id": "m7_world_v1",
+    "slot_semantics": "pre_swap_pick_order",
+    "identity_mode": "visual_reference",
+    "identity_assignment": "team_unique",
+    "placeholder_frame": "backend/data/raw/pick_order_suggestions/complete_draft_pilot/probes/0cvJFCCyxwo_76233bc8d14592c9.jpg",
+    "role_slot_map": {
+      "blue": {"1": "blue_pick1", "2": "blue_pick4", "3": "blue_pick5", "4": "blue_pick3", "5": "blue_pick2"},
+      "red": {"1": "red_pick3", "2": "red_pick2", "3": "red_pick1", "4": "red_pick5", "5": "red_pick4"}
+    }
+  },
+  "mpl_id_v1": {
+    "version": "mpl_id_s18_completion_v7",
+    "identity_mode": "broadcast_names",
+    "slot_semantics": "pre_swap_pick_order",
+    "placeholder_frame": "backend/data/raw/pick_order_suggestions/complete_draft_pilot/probes/CGCbVSueZ7c_848d4f1738f7e5f3.jpg",
+    "role_slot_map": {
+      "blue": {"1": "blue_pick1", "2": "blue_pick2", "3": "blue_pick3", "4": "blue_pick5", "5": "blue_pick4"},
+      "red": {"1": "red_pick1", "2": "red_pick3", "3": "red_pick4", "4": "red_pick5", "5": "red_pick2"}
+    },
+    "layout": {
+      "coordinate_space": "normalized",
+      "aspect_ratio": [16, 9],
+      "completion": {
+        "anchor_threshold": 0.75,
+        "settled_border_band": [0.966, 0.986],
+        "settled_border_gray_max": 195,
+        "settled_border_dark_fraction": 0.7,
+        "settled_required_separators": {"blue": 3, "red": 4},
+        "pool_min_similarity": 0.25,
+        "pool_mean_similarity": 0.68
+      },
+      "slots": {
+        "blue_pick1": [0.00625, 0.757, 0.075, 0.206],
+        "blue_pick2": [0.084, 0.757, 0.074, 0.206],
+        "blue_pick3": [0.161, 0.757, 0.075, 0.206],
+        "blue_pick4": [0.237, 0.757, 0.075, 0.206],
+        "blue_pick5": [0.315, 0.757, 0.075, 0.206],
+        "red_pick1": [0.918, 0.757, 0.075, 0.206],
+        "red_pick2": [0.841, 0.757, 0.075, 0.206],
+        "red_pick3": [0.764, 0.757, 0.075, 0.206],
+        "red_pick4": [0.687, 0.757, 0.075, 0.206],
+        "red_pick5": [0.609, 0.757, 0.075, 0.206]
+      },
+      "anchors": [
+        {"name": "left_headset", "bounds": [0.011, 0.70604782, 0.016, 0.036568214], "hashes": ["0000739c8c8c9d62"]},
+        {"name": "mpl_s18_sponsor", "bounds": [0.445, 0.9620253165, 0.11, 0.0295358650], "hashes": ["44588b9a8e8e4a92"]}
+      ]
+    }
+  }
+}

@@ -11,6 +11,7 @@ from typing import Any
 
 from backend.services.data.liquipedia_vods import liquipedia_vod_entry
 from backend.services.data.pick_order_annotations import validate_pick_order_payload
+from backend.services.data.pick_order_results import COMPLETE_DRAFT_EXTRACTOR_VERSION
 from backend.services.modeling.pick_constants import PICK_SEQUENCE
 
 LAYOUT_SOURCES = {
@@ -25,7 +26,7 @@ LAYOUT_SOURCES = {
 }
 REQUIRED_GAMES_PER_LAYOUT = 30
 MIN_COMPLETE_PER_LAYOUT = 18
-ACCEPTED_CAPTURE_EXTRACTOR_VERSION = "complete_draft_v11"
+ACCEPTED_CAPTURE_EXTRACTOR_VERSION = COMPLETE_DRAFT_EXTRACTOR_VERSION
 
 
 def _layout_for_game(game: dict[str, Any]) -> str | None:
@@ -44,17 +45,28 @@ def _match_key(game: dict[str, Any]) -> tuple[str, str]:
 
 def select_holdout(
     raw_games: list[dict[str, Any]],
-    development_ids: set[str],
+    exclusion_registry: dict[str, Any],
     games_per_layout: int = REQUIRED_GAMES_PER_LAYOUT,
 ) -> dict[str, Any]:
     """Fix a selection without touching VOD media or any gallery images."""
     if games_per_layout < 1:
         raise ValueError("games_per_layout must be positive")
     by_id = {game["game_id"]: game for game in raw_games}
-    missing_development = development_ids - by_id.keys()
-    if missing_development:
-        raise ValueError(f"Unknown development game IDs: {len(missing_development)}")
-    blocked_matches = {_match_key(by_id[game_id]) for game_id in development_ids}
+    exclusions = exclusion_registry.get("entries", [])
+    excluded_ids = {entry["game_id"] for entry in exclusions}
+    missing_exclusions = excluded_ids - by_id.keys()
+    if missing_exclusions:
+        raise ValueError(f"Unknown exclusion game IDs: {len(missing_exclusions)}")
+    for entry in exclusions:
+        game = by_id[entry["game_id"]]
+        if str(game.get("liquipedia_match_id") or "") != entry["liquipedia_match_id"]:
+            raise ValueError(f"Exclusion match mismatch: {entry['game_id']}")
+        if _layout_for_game(game) != entry["layout_id"]:
+            raise ValueError(f"Exclusion layout mismatch: {entry['game_id']}")
+    blocked_matches = {
+        (entry["layout_id"], entry["liquipedia_match_id"])
+        for entry in exclusions
+    }
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {
         layout: defaultdict(list) for layout in LAYOUT_SOURCES
     }
@@ -108,12 +120,18 @@ def select_holdout(
         for row in selected
     ]
     selection_id = hashlib.sha256(
-        json.dumps([(row["game_id"], row["video_id"]) for row in games],
-                   sort_keys=True).encode()
+        json.dumps(
+            {
+                "exclusion_registry_id": exclusion_registry["exclusion_registry_id"],
+                "games": [(row["game_id"], row["video_id"]) for row in games],
+            },
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
     return {
-        "version": 1,
+        "version": 2,
         "selection_id": selection_id,
+        "exclusion_registry_id": exclusion_registry["exclusion_registry_id"],
         "purpose": "blind_match_disjoint_holdout",
         "rights_status": "unconfirmed",
         "games_per_layout": games_per_layout,
@@ -145,7 +163,9 @@ def score_holdout(
     """Score the full-route output, counting any malformed complete as incorrect."""
     games = holdout.get("games", [])
     ids = [game.get("game_id") for game in games]
-    if holdout.get("version") != 1 or len(set(ids)) != len(ids):
+    if holdout.get("version") != 2:
+        raise ValueError("Holdout must use the current version 2 selection format")
+    if len(set(ids)) != len(ids):
         raise ValueError("Invalid or duplicate holdout game IDs")
     if gold.get("version") != 1 or not isinstance(gold.get("games"), list):
         raise ValueError("Gold must be confirmed annotation v1")

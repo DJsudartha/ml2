@@ -197,34 +197,35 @@ def suggest_pick_order_from_game_evidence(
             **identity_diagnostics.get(slot, {}),
         }
 
-    if complete_frame_verified:
-        for team, pool in pools.items():
-            missing = [f"{team}_pick{index}" for index in range(1, 6)
-                       if f"{team}_pick{index}" not in chosen]
-            known = [chosen[f"{team}_pick{index}"]["hero"]
-                     for index in range(1, 6)
-                     if f"{team}_pick{index}" in chosen]
-            if (
-                len(pool) == 5 and len(set(pool)) == 5
-                and len(missing) == 1 and len(known) == 4
-                and len(set(known)) == 4
-                and unresolved.get(missing[0]) == "unrecognized_hero"
-                and set(known) <= set(pool)
-                and (not require_lock_events or (
-                    missing[0] in events_by_slot and
-                    events_by_slot[missing[0]].get("final_slot_verified") and
-                    events_by_slot[missing[0]].get("final_artwork_persisted")
-                ))
-            ):
-                slot = missing[0]
-                chosen[slot] = {
-                    "hero": next(iter(set(pool) - set(known))),
-                    "confidence": min(1.0, min_confidence + 0.02),
-                    "sources": ["liquipedia_set_elimination"],
-                    "evidence_frames": [],
-                    "identity_observed_at_sec": None,
-                }
-                unresolved.pop(slot)
+    missing_game_slots = sorted(expected_slots - chosen.keys())
+    if complete_frame_verified and len(missing_game_slots) == 1:
+        slot = missing_game_slots[0]
+        team = slot.split("_", maxsplit=1)[0]
+        pool = pools[team]
+        known = [
+            chosen[f"{team}_pick{index}"]["hero"]
+            for index in range(1, 6)
+            if f"{team}_pick{index}" in chosen
+        ]
+        if (
+            len(pool) == 5 and len(set(pool)) == 5
+            and len(known) == 4 and len(set(known)) == 4
+            and unresolved.get(slot) == "unrecognized_hero"
+            and set(known) <= set(pool)
+            and (not require_lock_events or (
+                slot in events_by_slot
+                and events_by_slot[slot].get("final_slot_verified")
+                and events_by_slot[slot].get("final_artwork_persisted")
+            ))
+        ):
+            chosen[slot] = {
+                "hero": next(iter(set(pool) - set(known))),
+                "confidence": min(1.0, min_confidence + 0.02),
+                "sources": ["liquipedia_set_elimination"],
+                "evidence_frames": [],
+                "identity_observed_at_sec": None,
+            }
+            unresolved.pop(slot)
 
     reasons.extend(f"{slot}_{reason}" for slot, reason in unresolved.items())
     slot_suggestions = [

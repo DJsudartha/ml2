@@ -20,6 +20,9 @@ from backend.services.data.pick_order_consistency import (  # noqa: E402
 from backend.services.data.pick_order_gallery_release import (  # noqa: E402
     validate_gallery_release,
 )
+from backend.services.data.pick_order_exclusions import (  # noqa: E402
+    load_exclusion_registry,
+)
 from backend.services.data.pick_order_media_rights import require_media_rights  # noqa: E402
 from backend.services.data.vod_pick_order_suggestions import (  # noqa: E402
     HERO_REFERENCE_GALLERY_DIR,
@@ -29,6 +32,7 @@ from backend.services.data.vod_pick_order_suggestions import (  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--holdout", type=Path, required=True)
+    parser.add_argument("--exclusion-registry", type=Path)
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--suggestions", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -42,11 +46,17 @@ def main() -> int:
         if not path.is_file():
             parser.error(f"Missing input: {path}")
     try:
-        holdout, gold, suggestions = (
-            load_json(args.holdout), load_json(args.gold),
-            load_json(args.suggestions)
-        )
+        holdout = load_json(args.holdout)
+        if holdout.get("version") != 2:
+            raise ValueError("Holdout must use the current version 2 selection format")
+        if args.exclusion_registry is None:
+            raise ValueError("Version 2 holdout requires an exclusion registry")
+        exclusions = load_exclusion_registry(args.exclusion_registry)
+        if holdout.get("exclusion_registry_id") != exclusions["exclusion_registry_id"]:
+            raise ValueError("Holdout exclusion registry is stale")
+        gold, suggestions = load_json(args.gold), load_json(args.suggestions)
         report = score_holdout(holdout, gold, suggestions)
+        report["exclusion_registry_id"] = holdout.get("exclusion_registry_id")
     except (TypeError, ValueError) as exc:
         parser.error(str(exc))
     sources = load_json(ROOT / "backend/data/vod_sources.json")["sources"]

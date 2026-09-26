@@ -60,6 +60,9 @@
           ]
         }
       ],
+      "completion": {
+        "freeze_first_lock": true
+      },
       "detection": {
         "minimum_slot_stddev": 18.0,
         "minimum_edge_density": 0.025,

@@ -93,6 +93,9 @@ class CompletionTracker:
                 "Ten calibrated pick slots and at least two observations required"
             )
         self.minimum_frames = minimum_frames
+        self.freeze_first_lock = bool(
+            layout.get("completion", {}).get("freeze_first_lock", False)
+        )
         self.history = {}
         self.previous = {}
         self.previous_complete = None
@@ -110,9 +113,16 @@ class CompletionTracker:
         self.lock_event_crops = {}
         self.lock_events = []
 
-    def observe_slot_locks(self, filled, time_sec):
+    def observe_slot_locks(self, filled, time_sec, *, geometry_ok=True):
         """Retain only stable final-card transitions, not transient hovers."""
+        if self.freeze_first_lock and not geometry_ok:
+            return
         for slot in self.references:
+            # The first stable placeholder-to-artwork transition is the lock
+            # evidence. Later role swaps must not replace it with the artwork
+            # that happens to occupy this screen position at completion.
+            if self.freeze_first_lock and slot in self.lock_event_crops:
+                continue
             observed = filled.get(slot)
             if observed is None:
                 self.placeholder_seen.add(slot)
@@ -286,7 +296,8 @@ class CompletionTracker:
             ):
                 filled[slot] = observed
         self.maximum_filled = max(self.maximum_filled, len(filled))
-        self.observe_slot_locks(filled, time_sec)
+        geometry_ok, geometry_scores = self.settled_card_geometry(analysis)
+        self.observe_slot_locks(filled, time_sec, geometry_ok=geometry_ok)
         for slot, observed in filled.items():
             own = self.history.get(slot)
             own_score = similarity(observed, own) if own is not None else -1
@@ -306,7 +317,6 @@ class CompletionTracker:
                 for other, score in moved
             ):
                 self.swap_seen = True
-        geometry_ok, geometry_scores = self.settled_card_geometry(analysis)
         stable = len(filled) == 10 and geometry_ok and all(
             slot in self.previous
             and np.mean(
@@ -339,6 +349,16 @@ class CompletionTracker:
             self.run += 1
             if self.run >= self.minimum_frames:
                 selected, timestamp = self.candidate
+                if self.freeze_first_lock and any(
+                    slot in filled
+                    and portrait_similarity(crops[1], filled[slot]) < 0.85
+                    for slot, crops in self.lock_event_crops.items()
+                ):
+                    self.swap_seen = True
+                    self.candidate, self.run = None, 0
+                    self.completion_observations = []
+                    self.completion_frames = []
+                    return None
                 self.verified_lock_events(timestamp, filled)
                 return selected, {
                     "timestamp_sec": timestamp,
@@ -357,7 +377,9 @@ class CompletionTracker:
             ):
                 self.history[slot] = observed.copy()
         self.previous = filled
-        self.previous_complete = (frame.copy(), time_sec) if len(filled) == 10 else None
+        self.previous_complete = (
+            (frame.copy(), time_sec) if len(filled) == 10 and geometry_ok else None
+        )
         return None
 
     def pick_crops(self, frame):
@@ -654,6 +676,8 @@ def find_complete_frame(frames, tracker):
         result = tracker.observe(frame, timestamp)
         if result is not None:
             return result
+        if tracker.swap_seen:
+            break
     return None
 
 

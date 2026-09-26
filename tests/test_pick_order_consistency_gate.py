@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 
+from backend.services.data.pick_order_exclusions import validate_exclusion_registry
 from backend.services.modeling.pick_constants import PICK_SEQUENCE
 
 
@@ -49,15 +50,28 @@ def test_holdout_selection_is_fixed_match_disjoint_and_media_free(tmp_path):
             }),
             encoding="utf-8",
         )
-    development = tmp_path / "development.json"
-    development.write_text(json.dumps({"games": [
-        {"game_id": "M7_World_Championship_Knockout_Stage_games.json::series1::game1::1"},
-        {"game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series1::game1::1"},
-    ]}), encoding="utf-8")
+    exclusion_registry = tmp_path / "exclusions.json"
+    exclusions = {"version": 1, "entries": [
+        {
+            "game_id": "M7_World_Championship_Knockout_Stage_games.json::series1::game1::1",
+            "liquipedia_match_id": "m7-match-1",
+            "layout_id": "m7_world_v1",
+            "reason": "development",
+            "source": "fixture",
+        },
+        {
+            "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series1::game1::1",
+            "liquipedia_match_id": "mpl-match-1",
+            "layout_id": "mpl_id_v1",
+            "reason": "development",
+            "source": "fixture",
+        },
+    ]}
+    exclusion_registry.write_text(json.dumps(exclusions), encoding="utf-8")
     output = tmp_path / "holdout.json"
     result = _run(
         "prepare_pick_order_holdout", "--raw-dir", raw,
-        "--development-report", development, "--games-per-layout", 2,
+        "--exclusion-registry", exclusion_registry, "--games-per-layout", 2,
         "--output", output,
     )
     assert result.returncode == 0, result.stderr
@@ -68,12 +82,63 @@ def test_holdout_selection_is_fixed_match_disjoint_and_media_free(tmp_path):
     assert all("frame" not in row and "hero" not in row for row in payload["games"])
     assert not any(row["liquipedia_match_id"].endswith("match-1") for row in payload["games"])
     assert len({row["layout_id"] for row in payload["games"]}) == 2
+    assert payload["version"] == 2
+    assert len(payload["exclusion_registry_id"]) == 64
     assert _run(
         "prepare_pick_order_holdout", "--raw-dir", raw,
-        "--development-report", development, "--games-per-layout", 2,
+        "--exclusion-registry", exclusion_registry, "--games-per-layout", 2,
         "--output", output,
     ).returncode == 0
     assert payload == json.loads(output.read_text(encoding="utf-8"))
+
+    exclusions["entries"].append({
+        "game_id": "M7_World_Championship_Knockout_Stage_games.json::series3::game1::3",
+        "liquipedia_match_id": "m7-match-2",
+        "layout_id": "m7_world_v1",
+        "reason": "smoke_test",
+        "source": "fixture",
+    })
+    exclusion_registry.write_text(json.dumps(exclusions), encoding="utf-8")
+    stale = _run(
+        "prepare_pick_order_holdout", "--raw-dir", raw,
+        "--exclusion-registry", exclusion_registry, "--games-per-layout", 2,
+        "--output", output,
+    )
+    assert stale.returncode != 0
+    assert "Existing holdout is fixed" in stale.stderr
+
+
+def test_evaluator_rejects_holdout_bound_to_stale_exclusion_registry(tmp_path):
+    registry = tmp_path / "exclusions.json"
+    registry.write_text(json.dumps({"version": 1, "entries": [{
+        "game_id": "development-game",
+        "liquipedia_match_id": "development-match",
+        "layout_id": "m7_world_v1",
+        "reason": "development",
+        "source": "fixture",
+    }]}), encoding="utf-8")
+    holdout = tmp_path / "holdout.json"
+    holdout.write_text(json.dumps({
+        "version": 2,
+        "exclusion_registry_id": "stale-registry-id",
+        "games": [],
+    }), encoding="utf-8")
+    gold = tmp_path / "gold.json"
+    gold.write_text(json.dumps({"version": 1, "games": []}), encoding="utf-8")
+    suggestions = tmp_path / "suggestions.json"
+    suggestions.write_text(json.dumps({"games": []}), encoding="utf-8")
+
+    result = _run(
+        "evaluate_pick_order_holdout",
+        "--holdout", holdout,
+        "--exclusion-registry", registry,
+        "--gold", gold,
+        "--suggestions", suggestions,
+        "--output", tmp_path / "gate.json",
+    )
+
+    assert result.returncode != 0
+    assert "Holdout exclusion registry is stale" in result.stderr
 
 
 def _picks():
@@ -85,8 +150,20 @@ def _picks():
     ]
 
 
-def test_evaluator_fails_closed_without_gold_and_wrong_complete_order(tmp_path):
+def test_evaluator_requires_current_v2_holdout_and_fails_closed_on_bad_results(tmp_path):
     holdout = tmp_path / "holdout.json"
+    registry = tmp_path / "exclusions.json"
+    registry_payload = {"version": 1, "entries": [{
+        "game_id": "development-game",
+        "liquipedia_match_id": "development-match",
+        "layout_id": "m7_world_v1",
+        "reason": "development",
+        "source": "fixture",
+    }]}
+    registry.write_text(json.dumps(registry_payload), encoding="utf-8")
+    registry_id = validate_exclusion_registry(registry_payload)[
+        "exclusion_registry_id"
+    ]
     games = [
         {"game_id": f"{layout}-{i}", "layout_id": layout,
          "liquipedia_match_id": f"{layout}-match-{i // 3}",
@@ -94,16 +171,28 @@ def test_evaluator_fails_closed_without_gold_and_wrong_complete_order(tmp_path):
          "red_picks": [f"R{k}" for k in range(1, 6)]}
         for layout in ("m7_world_v1", "mpl_id_v1") for i in range(30)
     ]
-    holdout.write_text(json.dumps({"version": 1, "games": games}), encoding="utf-8")
+    holdout.write_text(json.dumps({
+        "version": 1,
+        "games": games,
+    }), encoding="utf-8")
     gold = tmp_path / "gold.json"
     gold.write_text(json.dumps({"version": 1, "games": []}), encoding="utf-8")
     suggestions = tmp_path / "suggestions.json"
     suggestions.write_text(json.dumps({"games": []}), encoding="utf-8")
     report = tmp_path / "gate.json"
     command = (
-        "--holdout", holdout, "--gold", gold,
+        "--holdout", holdout, "--exclusion-registry", registry, "--gold", gold,
         "--suggestions", suggestions, "--output", report,
     )
+    legacy = _run("evaluate_pick_order_holdout", *command)
+    assert legacy.returncode != 0
+    assert "version 2" in legacy.stderr
+
+    holdout.write_text(json.dumps({
+        "version": 2,
+        "exclusion_registry_id": registry_id,
+        "games": games,
+    }), encoding="utf-8")
     assert _run("evaluate_pick_order_holdout", *command).returncode != 0
     assert json.loads(report.read_text(encoding="utf-8"))["gate_passed"] is False
 
@@ -117,7 +206,7 @@ def test_evaluator_fails_closed_without_gold_and_wrong_complete_order(tmp_path):
          "provenance": {"layout_id": row["layout_id"],
                         "layout_validated": True,
                         "automatic_window": True,
-                        "capture_extractor_version": "complete_draft_v11",
+                        "capture_extractor_version": "complete_draft_v15",
                         "video_match_verified": True}}
         for layout in ("m7_world_v1", "mpl_id_v1")
         for i, row in enumerate(g for g in games if g["layout_id"] == layout)
@@ -210,6 +299,69 @@ def test_capture_evidence_rejects_tied_events_and_unverified_elimination(tmp_pat
     assert _run("capture_complete_drafts", *command).returncode != 0
     row = json.loads((output / "report.json").read_text(encoding="utf-8"))["games"][0]
     assert "unverified_game_vod" in row["ambiguity_reasons"]
+
+
+def test_capture_does_not_infer_when_two_identities_are_unresolved(tmp_path):
+    evidence = tmp_path / "evidence.json"
+    output = tmp_path / "capture"
+    observations = [
+        {
+            "slot": f"{team}_pick{index}",
+            "hero": f"{'B' if team == 'blue' else 'R'}{index}",
+            "confidence": 0.97,
+            "source": "broadcast_name",
+            "timestamp_sec": timestamp,
+        }
+        for team in ("blue", "red")
+        for index in range(1, 5)
+        for timestamp in (100.0, 100.6)
+    ]
+    events = [
+        {
+            "slot": f"{team}_pick{order}",
+            "timestamp_sec": 10.0 + index,
+            "stable_through_sec": 10.5 + index,
+            "placeholder_observed": True,
+            "final_slot_verified": True,
+            "final_artwork_persisted": True,
+        }
+        for index, (team, order, _) in enumerate(PICK_SEQUENCE)
+    ]
+    evidence.write_text(json.dumps({"games": [{
+        "raw_game": {
+            "game_id": "two-unresolved",
+            "blue_picks": [f"B{i}" for i in range(1, 6)],
+            "red_picks": [f"R{i}" for i in range(1, 6)],
+        },
+        "slot_observations": observations,
+        "lock_events": events,
+        "completion": {
+            "timestamp_sec": 100.0,
+            "swap_detected_before_selection": False,
+        },
+        "provenance": {
+            "layout_id": "mpl_id_v1",
+            "layout_version": "synthetic_v1",
+            "layout_validated": True,
+            "video_match_verified": True,
+        },
+    }]}), encoding="utf-8")
+
+    result = _run(
+        "capture_complete_drafts",
+        "--evidence-json", evidence,
+        "--output-dir", output,
+    )
+
+    assert result.returncode != 0
+    row = json.loads((output / "report.json").read_text(encoding="utf-8"))["games"][0]
+    assert row["order_complete"] is False
+    assert "blue_pick5_unrecognized_hero" in row["ambiguity_reasons"]
+    assert "red_pick5_unrecognized_hero" in row["ambiguity_reasons"]
+    assert not any(
+        "liquipedia_set_elimination" in pick.get("identity_sources", [])
+        for pick in row["proposed_picks"]
+    )
 
 
 def test_capture_uses_validated_pre_swap_slots_when_lock_timestamps_overlap(tmp_path):

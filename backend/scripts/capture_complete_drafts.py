@@ -8,7 +8,6 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-EXTRACTOR_VERSION = "complete_draft_v11"
 sys.path.insert(0, str(ROOT))
 from backend.services.common.file_utils import load_json, save_json  # noqa: E402
 from backend.services.data.complete_draft import (  # noqa: E402
@@ -40,6 +39,7 @@ from backend.services.data.pick_order_gallery_release import (  # noqa: E402
     validate_gallery_release,
 )
 from backend.services.data.pick_order_results import (  # noqa: E402
+    COMPLETE_DRAFT_EXTRACTOR_VERSION,
     failed_pick_order_result,
     incomplete_pick_order_result,
 )
@@ -49,10 +49,13 @@ from backend.services.data.pick_order_review_artifacts import (  # noqa: E402
     persist_evidence as _persist_evidence,
     write_image as _write_image,
 )
+
 from backend.services.data.vod_pick_order_suggestions import (  # noqa: E402
     HERO_REFERENCE_GALLERY_DIR,
     suggest_pick_order_from_game_evidence,
 )
+
+EXTRACTOR_VERSION = COMPLETE_DRAFT_EXTRACTOR_VERSION
 
 
 def input_identity(
@@ -417,7 +420,11 @@ def main():
                         ) as frames:
                             complete = find_complete_frame(frames, tracker)
                             if complete is None:
-                                if attempt < 2 and tracker.maximum_filled >= 8:
+                                if (
+                                    attempt < 2
+                                    and tracker.maximum_filled >= 8
+                                    and not tracker.swap_seen
+                                ):
                                     print(
                                         f"{entry['video_id']}: retry {attempt + 1}/2 "
                                         "after incomplete transition",
@@ -426,7 +433,11 @@ def main():
                                     continue
                                 result = _incomplete_suggestion(
                                     entry["game_id"],
-                                    "no_observed_complete_transition",
+                                    (
+                                        "slot_movement_after_lock"
+                                        if tracker.swap_seen
+                                        else "no_observed_complete_transition"
+                                    ),
                                     tracker=tracker,
                                 )
                                 break

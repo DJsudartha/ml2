@@ -9,6 +9,9 @@ from __future__ import annotations
 from typing import Any, Literal, TypedDict
 
 
+COMPLETE_DRAFT_EXTRACTOR_VERSION = "complete_draft_v15"
+
+
 PickOrderSource = Literal[
     "vod_complete_frame_assignment",
     "vod_slot_reveal",

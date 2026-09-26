@@ -220,6 +220,129 @@ def test_reference_completion_rejects_enlarged_card_until_separators_return(monk
     assert np.array_equal(selected, normal)
 
 
+def test_completion_tracker_never_selects_enlarged_preceding_frame(monkeypatch):
+    """The active MPL tracker retains the first settled frame, not its predecessor."""
+    monkeypatch.setattr(capture, "_anchor_score", lambda *args: 1.0)
+    rng = np.random.default_rng(49)
+    portraits = [rng.integers(0, 180, (200, 40, 3), dtype=np.uint8) for _ in range(10)]
+    animation_portraits = [
+        rng.integers(0, 180, (200, 40, 3), dtype=np.uint8) for _ in range(10)
+    ]
+    blank = np.full((200, 40, 3), 220, np.uint8)
+    blank[60:100, 10:25] = 0
+
+    def frame(*, missing=False, placeholders=False, animated=False, settled=False):
+        image = np.full((240, 400, 3), 245, np.uint8)
+        for index, portrait in enumerate(portraits):
+            image[:200, index * 40 : (index + 1) * 40] = (
+                blank
+                if placeholders or (missing and index == 9)
+                else animation_portraits[index]
+                if animated
+                else portrait
+            )
+        if settled:
+            for boundary in range(40, 400, 40):
+                image[210:230, boundary] = 0
+        return image
+
+    layout = {
+        "coordinate_space": "normalized",
+        "slots": {
+            f"{team}_pick{pick}": [index / 10, 0, 0.1, 200 / 240]
+            for index, (team, pick) in enumerate(
+                (team, pick)
+                for team in ("blue", "red")
+                for pick in range(1, 6)
+            )
+        },
+        "completion": {
+            "settled_border_band": [210 / 240, 230 / 240],
+            "settled_border_gray_max": 195,
+            "settled_border_dark_fraction": 0.7,
+            "settled_required_separators": {"blue": 4, "red": 4},
+        },
+    }
+    enlarged = frame(animated=True)
+    normal = frame(settled=True)
+    tracker = capture.CompletionTracker(layout, frame(placeholders=True), minimum_frames=3)
+    images = [
+        frame(placeholders=True),
+        frame(missing=True),
+        enlarged,
+        enlarged,
+        enlarged,
+        normal,
+        normal,
+        normal,
+    ]
+
+    result = capture.find_complete_frame(zip(images, range(len(images))), tracker)
+
+    assert result is not None, {
+        "maximum_filled": tracker.maximum_filled,
+        "incomplete_seen": tracker.incomplete_seen,
+        "swap_seen": tracker.swap_seen,
+        "run": tracker.run,
+        "frames_examined": tracker.frames_examined,
+        "lock_events": tracker.lock_events,
+    }
+    selected, diagnostics = result
+    assert diagnostics["timestamp_sec"] == 5
+    assert np.array_equal(selected, normal)
+
+
+def test_completion_tracker_rejects_artwork_changed_after_stable_locks(monkeypatch):
+    """A later settled role layout cannot replace the original lock events."""
+    monkeypatch.setattr(capture, "_anchor_score", lambda *args: 1.0)
+    rng = np.random.default_rng(50)
+    locked = [rng.integers(0, 180, (200, 40, 3), dtype=np.uint8) for _ in range(10)]
+    changed = [rng.integers(0, 180, (200, 40, 3), dtype=np.uint8) for _ in range(10)]
+    blank = np.full((200, 40, 3), 220, np.uint8)
+    blank[60:100, 10:25] = 0
+
+    def frame(portraits, *, missing=False):
+        image = np.full((240, 400, 3), 245, np.uint8)
+        for index, portrait in enumerate(portraits):
+            image[:200, index * 40 : (index + 1) * 40] = (
+                blank if missing and index == 9 else portrait
+            )
+        return image
+
+    layout = {
+        "coordinate_space": "normalized",
+        "slots": {
+            f"{team}_pick{pick}": [index / 10, 0, 0.1, 200 / 240]
+            for index, (team, pick) in enumerate(
+                (team, pick)
+                for team in ("blue", "red")
+                for pick in range(1, 6)
+            )
+        },
+        "completion": {"freeze_first_lock": True},
+    }
+    placeholders = frame([blank] * 10)
+    tracker = capture.CompletionTracker(layout, placeholders, minimum_frames=4)
+    locked_frame = frame(locked)
+    settled_after_changes = frame(changed)
+    sequence = [
+        (placeholders, 0.0),
+        (locked_frame, 0.2),
+        (locked_frame, 0.6),
+        (settled_after_changes, 0.8),
+        (settled_after_changes, 1.0),
+        (settled_after_changes, 1.2),
+        (settled_after_changes, 1.4),
+    ]
+
+    def frames():
+        yield from sequence
+        raise AssertionError("Decoder was consumed after terminal slot movement")
+
+    assert capture.find_complete_frame(frames(), tracker) is None
+    assert tracker.swap_seen
+
+
 def test_no_settled_pre_swap_frame_fails_closed(monkeypatch):
     monkeypatch.setattr(capture, "_anchor_score", lambda *args: 1.0)
     rng = np.random.default_rng(51)
@@ -969,10 +1092,17 @@ def test_broadcast_profiles_preserve_reviewed_role_to_screen_order():
     profiles = json.loads(
         Path("backend/data/complete_draft_profiles.json").read_text(encoding="utf-8")
     )
+    layouts = json.loads(Path("backend/data/layouts.json").read_text(encoding="utf-8"))[
+        "layouts"
+    ]
 
     assert profiles["m7_world_v1"]["slot_semantics"] == "pre_swap_pick_order"
     assert profiles["m7_world_v1"]["identity_assignment"] == "team_unique"
     assert profiles["mpl_id_v1"]["slot_semantics"] == "pre_swap_pick_order"
+    assert layouts["m7_world_v1"]["completion"]["freeze_first_lock"] is True
+    assert not layouts["mpl_id_v1"].get("completion", {}).get(
+        "freeze_first_lock", False
+    )
     assert profiles["m7_world_v1"]["role_slot_map"]["blue"] == {
         "1": "blue_pick1",
         "2": "blue_pick4",

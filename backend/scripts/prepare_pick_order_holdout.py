@@ -11,6 +11,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.services.common.file_utils import load_json, save_json  # noqa: E402
+from backend.services.data.pick_order_exclusions import (  # noqa: E402
+    load_exclusion_registry,
+)
 from backend.services.data.pick_order_consistency import select_holdout  # noqa: E402
 from backend.services.data.raw_games import load_raw_games  # noqa: E402
 
@@ -18,17 +21,15 @@ from backend.services.data.raw_games import load_raw_games  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-dir", type=Path, required=True)
-    parser.add_argument("--development-report", type=Path, required=True)
+    parser.add_argument("--exclusion-registry", type=Path, required=True)
     parser.add_argument("--games-per-layout", type=int, default=30)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    previous = load_json(args.development_report)
-    if not isinstance(previous, dict) or not isinstance(previous.get("games"), list):
-        parser.error("Development report must contain games list")
     try:
+        exclusions = load_exclusion_registry(args.exclusion_registry)
         payload = select_holdout(
             list(load_raw_games(args.raw_dir)),
-            {row["game_id"] for row in previous["games"]},
+            exclusions,
             args.games_per_layout,
         )
     except (KeyError, ValueError) as exc:

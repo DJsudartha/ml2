@@ -79,17 +79,9 @@ basis and covered channel IDs. Claims such as private, noncommercial, or delete-
 are deliberately rejected. The repository does not include this file. Without it, use
 only the metadata selector, existing-data evaluator, and synthetic tests.
 
-Fix the match-disjoint selection using local Liquipedia snapshots:
-
-```powershell
-& $vodPython backend/scripts/prepare_pick_order_holdout.py `
-  --raw-dir backend/data/raw/pick_order_suggestions/complete_draft_pilot/raw `
-  --development-report backend/data/raw/pick_order_suggestions/complete_draft_pilot/manifest.json `
-  --output backend/data/raw/pick_order_suggestions/consistency_holdout/selection.json
-```
-
-Once usage rights are confirmed, freeze the authorized private gallery before any
-holdout run. Its content hash prevents holdout crops from leaking into references:
+Complete development and calibration before selecting another holdout. Once usage
+rights are confirmed, freeze the authorized private gallery. Its content hash prevents
+holdout crops from leaking into references:
 
 ```powershell
 & $vodPython backend/scripts/release_pick_order_gallery.py `
@@ -97,6 +89,17 @@ holdout run. Its content hash prevents holdout crops from leaking into reference
   --archive private/pick_order_gallery.zip `
   --manifest-output private/pick_order_gallery.json `
   --media-rights-file private/media_rights.json
+```
+
+Then fix the match-disjoint selection using the committed exclusion registry and local
+Liquipedia snapshots. The previous 60-game selection is invalid because it contains the
+two smoke-test matches and must not be scored:
+
+```powershell
+& $vodPython backend/scripts/prepare_pick_order_holdout.py `
+  --raw-dir backend/data/raw/pick_order_suggestions/complete_draft_pilot/raw `
+  --exclusion-registry backend/data/pick_order_exclusions.json `
+  --output backend/data/raw/pick_order_suggestions/consistency_holdout/selection.json
 ```
 
 Verify selected uploads, run capture without `--start-sec` or `--references`, and
@@ -130,6 +133,7 @@ games were rechecked at least 48 hours later. Evaluate without promoting anythin
 ```powershell
 & $vodPython backend/scripts/evaluate_pick_order_holdout.py `
   --holdout backend/data/raw/pick_order_suggestions/consistency_holdout/selection.json `
+  --exclusion-registry backend/data/pick_order_exclusions.json `
   --gold private/holdout_gold.json `
   --suggestions backend/data/raw/pick_order_suggestions/consistency_holdout/capture/report.json `
   --audit private/holdout_audit.json `
@@ -151,6 +155,9 @@ cards retract and before any slot swap. MPL Indonesia Season 18 uses calibrated
 player-card separators to detect normal card geometry. A same-VOD team-wide
 comparison verifies the ten-portrait pool even if the early reference contains
 an enlarged card; that comparison does not assign hero names.
+M7 freezes each first stable placeholder-to-hero lock and rejects later slot movement;
+MPL permits earlier animation-era artwork changes and validates its final card positions
+using the calibrated normal-card geometry. These behaviors are versioned per layout.
 
 The active identity path uses Liquipedia's final five heroes per team as a
 candidate set, not its nonchronological `slot` field. MPL Season 18 reads vertical
@@ -162,8 +169,9 @@ ambiguous identities. A complete proposal also requires a stable placeholder-to-
 lock event for every slot and agreement with the first settled pre-swap frame. For the
 calibrated M7 and MPL Season 18 profiles, those slot positions define pick order;
 animation-overlapped lock timestamps are diagnostic evidence rather than a second order
-source. One unread hero can be inferred by elimination only when that slot and lock
-event are independently verified.
+source. One unread hero can be inferred by elimination only when it is the sole
+unresolved identity across the game and that slot and lock event are independently
+verified.
 The old profile `role_slot_map` remains for legacy comparisons but is not used by
 the active capture command.
 

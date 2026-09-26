@@ -26,6 +26,8 @@
   guarded one-missing-name elimination; the fixed role-remap path is legacy.
 - `data/pick_order_results.py`: canonical result records and constructors shared
   by capture, suggestion, and weekly orchestration paths.
+- `data/pick_order_exclusions.py`: validation and immutable hashes for the
+  match-level development exclusion registry.
 - `data/pick_order_review_artifacts.py`: crop/contact-sheet persistence and
   capture report serialization; full decoded frames remain in memory.
 - `data/pick_order_consistency.py`: fixed holdout selection, exact-order metrics,
@@ -48,19 +50,22 @@
 Review uses headless JSON and generated contact sheets. Browser review tooling is not part
 of the collection pipeline.
 
-## Current consistency-gate state — 16 September 2026
+## Current consistency-gate state — 27 September 2026
 
-- Fixed local selection: **60 games** — 30 M7 Knockout and 30 MPL Indonesia
-  Season 18 — from matches not used by the ten-game development pilot.
-- Selection ID: `cca1124bb1c797759b19db1b7267e34dba730fb89846a2fbff16e3e6fa6723f5`.
-- Blind confirmed labels: **0 / 60**.
-- Holdout capture suggestions: **0 / 60**.
+- The previous 60-game selection with ID
+  `cca1124bb1c797759b19db1b7267e34dba730fb89846a2fbff16e3e6fa6723f5`
+  is invalid because it includes both smoke-test matches. It must not be scored.
+- The committed exclusion registry contains the ten pilot games and two smoke games,
+  representing six development games per layout. A replacement holdout will be fixed
+  only after the 15-game-per-layout development sets and gallery are frozen.
+- Replacement holdout selection, labels, and suggestions: **not created**.
 - Accuracy gate: **failed/pending**; weekly ready: **false**.
-- New live VOD processing during this implementation: **none**.
-- Existing 27-image local gallery: **not archived or shared**, because an actual
-  usage-rights basis has not been supplied.
+- New live VOD processing during this implementation: **four development-game v15
+  smoke runs**, authorized by the private local rights record.
+- The existing 27-image local gallery remains private and frozen. No smoke crop was
+  added to it, and neither the rights record nor gallery archive is committed.
 
-The active extractor is `complete_draft_v11`. It requires a verified official per-game
+The active extractor is `complete_draft_v15`. It requires a verified official per-game
 upload, validated layout, ten stable lock events, time-separated identity observations,
 and a first settled pre-swap frame. The calibrated M7 and MPL Season 18 layouts declare
 their card slots as `pre_swap_pick_order`; lock timestamps prove transitions but animation
@@ -77,29 +82,33 @@ orders remain in `picks` for compatibility; partial or provisional identities ar
 only through `proposed_picks`. Unresolved slots include their top two candidates, local
 margin, and team-assignment margin. M7 identity matching is now a five-by-five bijection
 over Liquipedia's final team set, using lighting/alignment-normalized observations sampled
-at separated source times. At most one independently locked missing identity may still be
-filled by Liquipedia-set elimination.
+at separated source times. Liquipedia-set elimination is permitted only when exactly one
+identity is unresolved across the entire game and its lock is independently verified.
 
 This change has regression coverage but has not promoted labels, refreshed raw data,
 retrained models, or run the 60-game holdout. Weekly rollout remains disabled until each
 30-game layout set has at least 18 complete suggestions and zero incorrect complete
 orders, with the private rights, gallery, VOD, and label-audit controls present.
 
-### Automatic smoke — 24 September 2026
+### Automatic smoke — 27 September 2026
 
-Two official per-game VODs were processed concurrently through the automatic-window,
-crop-only v11 route, reusing the existing live VOD audit and frozen private gallery.
-MPL Indonesia Season 18 produced one complete 10-pick suggestion with both identity and
-slot-order gates valid. M7 validated the layout, lock transitions, and slot order but
-abstained on identity: one direct identity was accepted and nine remained unresolved with
-top-two diagnostics. No thresholds were changed and no smoke crop was added to the
-gallery. Both jobs retained ten settled crops plus one contact sheet, and retained no VOD
-or full frame. Each also retained the twenty small first-visible/stable-lock crops used
-to audit the ten transitions; each complete review bundle stayed below 0.2 MB.
+Four official per-game VODs were processed through the automatic-window, crop-only v15
+route, with at most two concurrent remote streams and the frozen private gallery. M7's
+layout freezes its first stable placeholder-to-hero lock: both M7 games detected later
+slot movement and failed closed with `slot_movement_after_lock`, no selected frame, no
+crop evidence, and no retry. MPL Season 18 keeps its calibrated settled-card behavior so
+enlarged-card animation artwork cannot become a false first lock.
 
-These are smoke outcomes, not gate evidence or confirmed labels. The two inspected games
-must be treated as development games and excluded when a fresh blind 30+30 selection is
-frozen for final scoring.
+Both MPL games produced normal-size settled contact sheets whose screen slots matched the
+previously reviewed pick order. `CGCbVSueZ7c` produced a complete 10-pick suggestion that
+exactly matched the prior reviewer-accepted order. `SuqcHmHNTos` abstained because OCR and
+lock evidence were incomplete. The two MPL review bundles stayed below 0.2 MB; the two
+M7 terminal reports were about 1.2 KB each. No run retained a VOD or full frame, changed a
+gallery reference, promoted an annotation, rebuilt a dataset, or trained a model.
+
+These are development smokes, not gate evidence or confirmed labels. All four games remain
+excluded from a fresh blind 30+30 selection. The result demonstrates safe abstention and
+one exact complete order; it does not satisfy the eventual coverage gate.
 
 ### Private control files
 

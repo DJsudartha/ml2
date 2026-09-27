@@ -1,11 +1,12 @@
-fastapi
-uvicorn
-pydantic
-httpx
-python-dotenv
+fastapi==0.135.2
+uvicorn==0.42.0
+pydantic==2.12.5
+httpx==0.28.1
+requests==2.34.2
+python-dotenv==1.2.2
 
-numpy
-pandas
-scikit-learn
-xgboost
-sentence-transformers
+numpy==2.1.0
+pandas==3.0.2
+scikit-learn==1.8.0
+xgboost==3.2.0
+sentence-transformers==5.3.0

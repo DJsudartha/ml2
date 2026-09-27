@@ -17,9 +17,9 @@ Read the repo-root `AGENTS.md` first.
 ## Guardrails
 
 - Preserve the GitHub Pages base path `/ml2/` unless the task explicitly changes deployment.
-- The default frontend API target is the hosted Render backend. Do not silently switch the default local-development workflow.
+- The default frontend API target is `http://127.0.0.1:8000`. Use `VITE_API_BASE_URL` only for an explicit alternative backend.
 - Preserve hero names exactly. Asset filenames under `frontend/public/HeroIcon/` depend on spacing and punctuation.
-- There is no established frontend test suite here yet, so lint, typecheck, and build are the required checks.
+- Frontend tests use Vitest and Testing Library. Run them with lint, typecheck, and build.
 
 ## Done
 
@@ -27,6 +27,7 @@ Run these when frontend behavior changes:
 
 - `cd frontend && npm run lint`
 - `cd frontend && npx tsc -p tsconfig.app.json --noEmit`
+- `cd frontend && npm run test`
 - `cd frontend && npm run build`
 
 If the change also affects backend contracts, update the backend and frontend in the same task and mention the contract change explicitly.

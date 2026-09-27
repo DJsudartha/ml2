@@ -1,18 +1,18 @@
 import cv2
-import json
 from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from backend.services.data.vod_layouts import crop_slots, load_layout  # noqa: E402
 
 FRAMES_DIR = "backend/data/raw/frames/m7"
-LAYOUT_PATH = "backend/data/layouts.json"
 TOURNAMENT_ID = "M7_World"
 OUTPUT_DIR = "backend/data/crops/m7_test"
 
-# Load layout
-with open(LAYOUT_PATH) as f:
-    layout = json.load(f)[TOURNAMENT_ID]
-
-slots = layout["slots"]
-ref_w, ref_h = layout["resolution"]
+layout = load_layout(TOURNAMENT_ID)
 
 # Process every frame
 frame_paths = sorted(Path(FRAMES_DIR).glob("*.jpg"))
@@ -23,23 +23,8 @@ for frame_path in frame_paths:
     if img is None:
         continue
 
-    h, w = img.shape[:2]
-    scale_x, scale_y = w / ref_w, h / ref_h
-
-    for slot_name, (x, y, sw, sh) in slots.items():
-        # Scale to actual resolution
-        x_scaled  = int(x  * scale_x)
-        y_scaled  = int(y  * scale_y)
-        sw_scaled = int(sw * scale_x)
-        sh_scaled = int(sh * scale_y)
-
-        # Crop the slot
-        crop = img[y_scaled:y_scaled+sh_scaled, x_scaled:x_scaled+sw_scaled]
-
-        # Resize to standard size for classifier
+    for slot_name, crop in crop_slots(img, layout).items():
         crop = cv2.resize(crop, (64, 64))
-
-        # Save as frames_dir/slot_name/frame_00001.jpg
         slot_output_dir = Path(OUTPUT_DIR) / slot_name
         slot_output_dir.mkdir(parents=True, exist_ok=True)
         out_path = slot_output_dir / frame_path.name

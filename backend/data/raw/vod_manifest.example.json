@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "game_id": "M7_World_Championship_Knockout_Stage_games.json::series1::game1::1",
+      "status": "matched",
+      "vod_url": "https://www.youtube.com/watch?v=example",
+      "video_id": "example",
+      "channel_id": "UCMncR-XXNXhMyJELEgCrHlg",
+      "source_id": "mlbb_esports",
+      "source_kind": "per_game",
+      "match_confidence": 0.98,
+      "scan_start_sec": 0,
+      "scan_duration_sec": 720,
+      "layout_id": "m7_world_v1"
+    }
+  ]
+}

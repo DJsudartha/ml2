@@ -1,13 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { HeroGrid } from "./HeroGrid";
-import type { Hero, Recommendation } from "../types/draft.ts";
+import type {
+  Hero,
+  Recommendation,
+  RecommendationRequest,
+} from "../types/draft.ts";
+import { fetchBanAdvice, fetchPickAdvice } from "../api.ts";
 import { draftOrder } from "../data/draftOrder";
 import { heroes } from "../data/heroes";
 import { TIME_PER_ACTION, SLOT_COUNT } from "../constants/draft.ts";
 import { BanSlotsRow } from "./BanSlotsRow.tsx";
 import { DraftHeader } from "./DraftHeader.tsx";
 import { DraftControls } from "./DraftControls.tsx";
-import RecommendationBox  from "./RecommendationBox.tsx"
+import { RecommendationBox } from "./RecommendationBox.tsx";
 import { PickSlotsColumn } from "./PickSlotsColumn.tsx";
 
 export function DraftInterface() {
@@ -20,7 +25,8 @@ export function DraftInterface() {
   const [stepSelectionsCount, setStepSelectionsCount] = useState(0);
   const [hasDraftStarted, setHasDraftStarted] = useState(false);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
 
   const [bannedHeroIds, setBannedHeroIds] = useState<
     Set<number>
@@ -115,6 +121,9 @@ const handleResetDraft = () => {
   setStepSelectionsCount(0);
   setTimeRemaining(TIME_PER_ACTION);
   setHasDraftStarted(false);
+  setRecommendations([]);
+  setRecommendationsLoading(false);
+  setRecommendationError(null);
 }
 
   const blueBanActiveIndex =
@@ -159,7 +168,7 @@ useEffect(() => {
   if (!hasDraftStarted) return;
   if (!currentStep) return;
 
-  const payload = {
+  const payload: RecommendationRequest = {
     team: currentStep.team,
     blue_picks: bluePicks.map((h) => h.name),
     red_picks: redPicks.map((h) => h.name),
@@ -170,50 +179,39 @@ useEffect(() => {
     rerank_pool_size: null,
   };
 
-  console.log("Sending recommendation payload:", payload);
-
-  let cancelled = false;
+  const controller = new AbortController();
+  setRecommendationsLoading(true);
+  setRecommendationError(null);
 
   async function fetchData() {
     try {
       if (!currentStep) return;
-      const endpoint =
+      const requestAdvice =
         currentStep.action === "ban"
-          ? "/advise-bans"
-          : "/advise-picks";
-
-      console.log("Posting to endpoint:", endpoint);
-
-      const res = await fetch(`https://ml-2-8lkf.onrender.com/draft${endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-
-      const data = await res.json();
-
-      if (!cancelled) {
-        const recs = Array.isArray(data.recommendation.recommendations) 
-                    ? data.recommendation.recommendations 
-                    : [];
-        setRecommendations(recs);
-      }
+          ? fetchBanAdvice
+          : fetchPickAdvice;
+      const data = await requestAdvice(payload, controller.signal);
+      const recs = Array.isArray(data.recommendation.recommendations)
+        ? data.recommendation.recommendations
+        : [];
+      setRecommendations(recs);
     } catch (err) {
-      console.error("Recommendation error:", err);
-      if (!cancelled) {
-        setRecommendations([]);
+      if (controller.signal.aborted) return;
+      console.error("Local recommendation error:", err);
+      setRecommendations([]);
+      setRecommendationError(
+        "Local backend unavailable. Start it on http://127.0.0.1:8000.",
+      );
+    } finally {
+      if (!controller.signal.aborted) {
+        setRecommendationsLoading(false);
       }
     }
   }
 
   fetchData();
 
-  return () => {
-    cancelled = true;
-  };
+  return () => controller.abort();
 }, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted]);
 
   return (
@@ -270,6 +268,8 @@ useEffect(() => {
         team="blue"
         recommendations={recommendations}
         visible={hasDraftStarted && currentTeam === "blue"}
+        isLoading={recommendationsLoading}
+        error={recommendationError}
       />
     </div>
 
@@ -290,6 +290,8 @@ useEffect(() => {
         team="red"
         recommendations={recommendations}
         visible={hasDraftStarted && currentTeam === "red"}
+        isLoading={recommendationsLoading}
+        error={recommendationError}
       />
     </div>
 

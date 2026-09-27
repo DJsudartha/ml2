@@ -1,4 +1,5 @@
 from backend.services.liquipedia.liquipedia_api import fetch_table
+from backend.services.data.raw_games import ROLE_MAP
 
 def extract_list(prefix: str, count: int, source: dict) -> list[str]:
     values = []
@@ -33,7 +34,7 @@ def parse_and_normalize_matches(data: dict) -> dict:
 
             team1_side = extradata.get("team1side")
             team2_side = extradata.get("team2side")
-            raw_winner = game.get("winner")
+            raw_winner = str(game.get("winner") or "")
 
             team1_picks = []
             team2_picks = []
@@ -46,26 +47,18 @@ def parse_and_normalize_matches(data: dict) -> dict:
                 curr_team1_ban = extradata.get(f"team1ban{i}")
                 curr_team2_ban = extradata.get(f"team2ban{i}")
 
-                role_map = {
-                    1: "EXP",
-                    2: "Jungle",
-                    3: "Mid",
-                    4: "Gold",
-                    5: "Roam",
-                }
-
                 if curr_team1_pick:
                     team1_picks.append({
                         "hero": curr_team1_pick,
                         "slot": i,
-                        "role": role_map[i],
+                        "role": ROLE_MAP[i],
                     })
 
                 if curr_team2_pick:
                     team2_picks.append({
                         "hero": curr_team2_pick,
                         "slot": i,
-                        "role": role_map[i],
+                        "role": ROLE_MAP[i],
                     })
 
                 if curr_team1_ban:
@@ -104,6 +97,9 @@ def parse_and_normalize_matches(data: dict) -> dict:
             else:
                 continue
 
+            if raw_winner not in ('1', '2'):
+                winner = None
+
             series_date = game.get("date") or match.get("date")
             series_patch = game.get("patch") or match.get("patch")
 
@@ -125,6 +121,10 @@ def parse_and_normalize_matches(data: dict) -> dict:
 
             grouped_series[series_key]["games"].append({
                 "game_no": game.get("match2gameid"),
+                "liquipedia_match_id": match.get("match2id"),
+                "liquipedia_game_id": game.get("match2gameid"),
+                "vod": game.get("vod") or "",
+                "series_vod": match.get("vod") or "",
                 "blue_team": blue_team,
                 "red_team": red_team,
                 "blue_bans": blue_bans,

@@ -214,9 +214,18 @@ frontend/.vite/
 
 # Backend local artifacts
 backend/.env
+private/
 backend/.venv/
 backend/venv/
 backend/__pycache__/
+backend/data/raw/frames/
+backend/data/raw/vods/
+backend/data/raw/pick_order_suggestions/
+backend/data/raw/pick_order_annotations/*.template.json
+backend/data/raw/hero_reference_gallery/
+backend/data/runtime/
+.playwright-cli/
+output/playwright/
 
 # Editor folders
 .idea/

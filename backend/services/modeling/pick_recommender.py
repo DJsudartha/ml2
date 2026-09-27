@@ -34,10 +34,19 @@ from backend.services.modeling.pick_signal_model import (
     pick_signal_prior_score,
 )
 
+PICK_TRAINING_CONTEXT = {
+    "target": "order-agnostic-pick-fit",
+    "uses_confirmed_pick_order": False,
+    "limitation": (
+        "The current ranker was trained on final lineup fit, not confirmed sequential pick order. "
+        "Treat its output as draft-fit guidance until an ordered model is trained from confirmed annotations."
+    ),
+}
+
 ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
-    
+
 PROCESSED_STATS_ABS_PATH = ROOT_DIR / PROCESSED_STATS_PATH
 MODEL_DIR = ROOT_DIR / "backend/data/modeling/models"
 RANKER_REPORT_PATH = MODEL_DIR / "pick_ranker_report.json"
@@ -256,11 +265,12 @@ def _trained_signal_prior_score(frame: pd.DataFrame) -> pd.Series:
 def _context_sort_frame(
     frame: pd.DataFrame,
     order_profile: PickOrderProfile,
+    top_pool_size: int,
 ) -> pd.DataFrame:
     if frame.empty:
         return frame
 
-    scored = build_pick_signal_frame(frame)
+    scored = build_pick_signal_frame(frame.head(top_pool_size).copy())
     scored["context_peak"] = scored[
         [
             "secure_power_signal",
@@ -274,7 +284,7 @@ def _context_sort_frame(
     scored["final_score"] = score_pick_order_profile(scored, order_profile)
     scored["order_adjustment"] = scored["final_score"] - scored["prior_score"]
 
-    return scored.sort_values(
+    reranked_top = scored.sort_values(
         by=[
             "final_score",
             "context_peak",
@@ -282,7 +292,16 @@ def _context_sort_frame(
             "candidate_adjusted_win_rate",
         ],
         ascending=False,
-    ).reset_index(drop=True)
+    )
+
+    remaining_pool = frame.iloc[top_pool_size:].copy()
+    if not remaining_pool.empty:
+        remaining_pool["context_peak"] = 0.0
+        remaining_pool["context_support"] = 0.0
+        remaining_pool["final_score"] = remaining_pool["prior_score"]
+        remaining_pool["order_adjustment"] = 0.0
+
+    return pd.concat([reranked_top, remaining_pool], axis=0, ignore_index=True).reset_index(drop=True)
 
 
 def recommend_next_picks(
@@ -315,6 +334,9 @@ def recommend_next_picks(
     if not candidate_heroes:
         return {
             **turn,
+            "training_context": dict(PICK_TRAINING_CONTEXT),
+            "candidate_count": 0,
+            "rerank_pool_size": 0,
             "recommendations": [],
         }
 
@@ -378,9 +400,14 @@ def recommend_next_picks(
         ],
         ascending=False,
     ).reset_index(drop=True)
+    resolved_rerank_pool_size = min(
+        len(candidate_heroes),
+        max(top_k * 4, 12) if rerank_pool_size is None else max(1, rerank_pool_size),
+    )
     sorted_frame = _context_sort_frame(
         frame=sorted_prior_frame,
         order_profile=order_profile,
+        top_pool_size=resolved_rerank_pool_size,
     )
 
     recommendations: list[dict[str, Any]] = []
@@ -424,15 +451,16 @@ def recommend_next_picks(
         "order_profile": order_profile.to_dict(),
         "base_model_source": base_model_source,
         "base_model_name": base_model_name,
+        "training_context": dict(PICK_TRAINING_CONTEXT),
         "candidate_count": int(len(candidate_heroes)),
-        "rerank_pool_size": int(len(candidate_heroes)),
+        "rerank_pool_size": int(resolved_rerank_pool_size),
         "recommendations": recommendations,
     }
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Recommend ordered picks from the trained pick-fit ranker with order-aware reranking."
+        description="Recommend draft-fit picks with turn-aware reranking."
     )
     parser.add_argument("--team", default="blue", choices=["blue", "red"])
     parser.add_argument("--blue-picks", default="")

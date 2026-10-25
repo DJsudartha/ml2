@@ -7,6 +7,8 @@ type RecommendationBoxProps = {
   visible: boolean;
   isLoading: boolean;
   error: string | null;
+  limitation?: string | null;
+  isDoublePick?: boolean;
 };
 
 export function RecommendationBox({
@@ -15,6 +17,8 @@ export function RecommendationBox({
   visible,
   isLoading,
   error,
+  limitation,
+  isDoublePick,
 }: RecommendationBoxProps) {
   if (!visible) return null;
 
@@ -24,14 +28,16 @@ export function RecommendationBox({
         {team === "blue" ? "Blue Suggestions" : "Red Suggestions"}
       </div>
 
+      {isDoublePick && <p className="text-xs text-gray-300 my-2">Choose two heroes in either order. Suggestions update after each choice.</p>}
+      {limitation && <p className="text-xs text-amber-200 my-2">{limitation}</p>}
       {error ? (
         <div className="text-sm text-red-300" role="alert">
           {error}
         </div>
       ) : isLoading ? (
-        <div className="text-sm text-gray-300">Loading local recommendations…</div>
+        <div className="text-sm text-gray-300" role="status">Loading recommendations...</div>
       ) : recommendations.length === 0 ? (
-        <div className="text-sm text-gray-300">No recommendations yet</div>
+        <div className="text-sm text-gray-300">No recommendations returned for this draft state.</div>
       ) : (
         <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
           {recommendations.map((rec) => (

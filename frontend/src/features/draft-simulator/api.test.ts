@@ -3,6 +3,7 @@ import {
   API_BASE,
   fetchBanAdvice,
   fetchBanRecommendations,
+  fetchPickRecommendations,
   fetchPickAdvice,
 } from "./api";
 import type {
@@ -13,7 +14,7 @@ import type {
 
 const payload: RecommendationRequest = {
   team: "blue",
-  blue_picks: ["Akai"],
+  blue_picks: ["Miya"],
   red_picks: ["Claude"],
   blue_bans: ["Fanny"],
   red_bans: ["Joy"],
@@ -101,5 +102,29 @@ describe("draft simulator API client", () => {
     await expect(fetchBanAdvice(payload)).rejects.toThrow(
       "Local draft API request failed: 503",
     );
+  });
+});
+
+
+describe("recommendation response validation", () => {
+  it("uses the pick endpoint, preserves abort signals and orders by backend rank", async () => {
+    const second = { ...recommendation.recommendations[0], hero: "Yve", rank: 2 };
+    const fetchMock = mockFetch({ ok: true, json: async () => ({ ...recommendation, recommendations: [second, recommendation.recommendations[0]] }) });
+    const controller = new AbortController();
+    const result = await fetchPickRecommendations(payload, controller.signal);
+    expect(result.recommendations.map((row) => row.hero)).toEqual(["Akai", "Yve"]);
+    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/draft/recommend-picks`, expect.objectContaining({ signal: controller.signal }));
+  });
+
+  it.each([
+    {}, { team: "red", recommendations: [] },
+    { ...recommendation, recommendations: [{ hero: "Akai", rank: 1, score: "1", reasons: [] }] },
+    { ...recommendation, recommendations: [{ ...recommendation.recommendations[0], hero: "Miya" }] },
+    { ...recommendation, recommendations: [{ ...recommendation.recommendations[0], hero: "Fanny" }] },
+    { ...recommendation, recommendations: [recommendation.recommendations[0], recommendation.recommendations[0]] },
+    { ...recommendation, recommendations: [{ ...recommendation.recommendations[0], reasons: null }] },
+  ])("rejects malformed, wrong-team, duplicate or unavailable suggestions: %j", async (value) => {
+    mockFetch({ ok: true, json: async () => value });
+    await expect(fetchPickRecommendations(payload)).rejects.toThrow(/Invalid/);
   });
 });

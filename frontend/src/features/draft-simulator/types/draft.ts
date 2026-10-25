@@ -24,6 +24,8 @@ export interface DraftStep {
   phase: DraftPhase;
   team: Team;
   action: DraftAction;
+  count: number;
+  batch?: "B1" | "R1/R2" | "B2/B3" | "R3" | "R4" | "B4/B5" | "R5";
 }
 
 export interface RecommendationRequest {

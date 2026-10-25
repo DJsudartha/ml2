@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { HeroGrid } from "./HeroGrid";
 import type {
   Hero,
-  Recommendation,
+  RecommendationResponse,
   RecommendationRequest,
 } from "../types/draft.ts";
-import { fetchBanAdvice, fetchPickAdvice } from "../api.ts";
+import { API_BASE, fetchBanRecommendations, fetchPickRecommendations } from "../api.ts";
 import { draftOrder } from "../data/draftOrder";
 import { heroes } from "../data/heroes";
 import { TIME_PER_ACTION, SLOT_COUNT } from "../constants/draft.ts";
@@ -24,9 +24,11 @@ export function DraftInterface() {
   const [redPicks, setRedPicks] = useState<Hero[]>([]);
   const [stepSelectionsCount, setStepSelectionsCount] = useState(0);
   const [hasDraftStarted, setHasDraftStarted] = useState(false);
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
-  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationResult, setRecommendationResult] = useState<{
+    key: string;
+    data?: RecommendationResponse;
+    error?: string;
+  } | null>(null);
 
   const [bannedHeroIds, setBannedHeroIds] = useState<
     Set<number>
@@ -42,6 +44,13 @@ export function DraftInterface() {
       : null;
   const currentTeam = currentStep ? currentStep.team : null;
   const currentAction = currentStep ? currentStep.action : "complete";
+  const requestKey = JSON.stringify([
+    hasDraftStarted, currentDraftIndex, bluePicks, redPicks, blueBans, redBans,
+  ]);
+  const activeResult = recommendationResult?.key === requestKey ? recommendationResult : null;
+  const recommendations = activeResult?.data?.recommendations ?? [];
+  const recommendationsLoading = hasDraftStarted && !!currentStep && !activeResult;
+  const recommendationError = activeResult?.error ?? null;
 
   const getRandomAvailableHero = useCallback(() => {
   const availableHeroes = heroes.filter(
@@ -81,6 +90,7 @@ const applyHeroSelection = useCallback((hero: Hero, currentIndex: number) => {
   }
 
   if (!selectionApplied) return;
+  setTimeRemaining(TIME_PER_ACTION);
 
   const nextSelectionsMade = stepSelectionsCount + 1;
   const isStepComplete = nextSelectionsMade >= current.count;
@@ -121,9 +131,7 @@ const handleResetDraft = () => {
   setStepSelectionsCount(0);
   setTimeRemaining(TIME_PER_ACTION);
   setHasDraftStarted(false);
-  setRecommendations([]);
-  setRecommendationsLoading(false);
-  setRecommendationError(null);
+  setRecommendationResult(null);
 }
 
   const blueBanActiveIndex =
@@ -144,7 +152,7 @@ useEffect(() => {
 }, [currentDraftIndex, hasDraftStarted]);
 
 useEffect(() => {
-  if (timeRemaining !== 0) return;
+  if (!hasDraftStarted || timeRemaining !== 0) return;
   if (currentDraftIndex >= draftOrder.length) return;
 
   const id = setTimeout(() => {
@@ -162,7 +170,7 @@ useEffect(() => {
   }, 0);
 
   return () => clearTimeout(id);
-}, [timeRemaining, currentDraftIndex, getRandomAvailableHero, applyHeroSelection]);
+}, [timeRemaining, currentDraftIndex, hasDraftStarted, getRandomAvailableHero, applyHeroSelection]);
 
 useEffect(() => {
   if (!hasDraftStarted) return;
@@ -180,39 +188,30 @@ useEffect(() => {
   };
 
   const controller = new AbortController();
-  setRecommendationsLoading(true);
-  setRecommendationError(null);
 
   async function fetchData() {
     try {
       if (!currentStep) return;
       const requestAdvice =
         currentStep.action === "ban"
-          ? fetchBanAdvice
-          : fetchPickAdvice;
+          ? fetchBanRecommendations
+          : fetchPickRecommendations;
       const data = await requestAdvice(payload, controller.signal);
-      const recs = Array.isArray(data.recommendation.recommendations)
-        ? data.recommendation.recommendations
-        : [];
-      setRecommendations(recs);
+      if (controller.signal.aborted) return;
+      setRecommendationResult({ key: requestKey, data });
     } catch (err) {
       if (controller.signal.aborted) return;
-      console.error("Local recommendation error:", err);
-      setRecommendations([]);
-      setRecommendationError(
-        "Local backend unavailable. Start it on http://127.0.0.1:8000.",
-      );
-    } finally {
-      if (!controller.signal.aborted) {
-        setRecommendationsLoading(false);
-      }
+      setRecommendationResult({
+        key: requestKey,
+        error: `Recommendations unavailable from ${API_BASE}. ${err instanceof Error ? err.message : "Request failed."}`,
+      });
     }
   }
 
   fetchData();
 
   return () => controller.abort();
-}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted]);
+}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted, requestKey]);
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col overflow-hidden">
@@ -232,6 +231,9 @@ useEffect(() => {
             currentTeam={currentTeam}
             timeRemaining={timeRemaining}
             hasDraftStarted={hasDraftStarted}
+            phase={currentStep?.phase}
+            batch={currentStep?.batch}
+            remaining={currentStep ? currentStep.count - stepSelectionsCount : 0}
           />
 
           <div className="w-[360px] flex justify-end items-center gap-2">
@@ -270,6 +272,8 @@ useEffect(() => {
         visible={hasDraftStarted && currentTeam === "blue"}
         isLoading={recommendationsLoading}
         error={recommendationError}
+        limitation={activeResult?.data?.training_context?.limitation}
+        isDoublePick={currentStep?.count === 2}
       />
     </div>
 
@@ -292,6 +296,8 @@ useEffect(() => {
         visible={hasDraftStarted && currentTeam === "red"}
         isLoading={recommendationsLoading}
         error={recommendationError}
+        limitation={activeResult?.data?.training_context?.limitation}
+        isDoublePick={currentStep?.count === 2}
       />
     </div>
 

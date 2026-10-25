@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.draft import router as draft_router
@@ -40,3 +41,8 @@ def draft_routes():
             "/draft/advise-picks",
         ]
     }
+
+
+@app.exception_handler(ValueError)
+def invalid_draft_state(request: Request, exc: ValueError):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})

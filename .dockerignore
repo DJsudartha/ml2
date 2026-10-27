@@ -1,0 +1,37 @@
+# Default deny: private evidence, holdouts, datasets, credentials, caches,
+# frontend assets, tests and development artifacts never enter the build context.
+**
+!Dockerfile
+!.dockerignore
+!backend/
+!backend/__init__.py
+!backend/main.py
+!backend/requirements-serving.txt
+!backend/api/
+!backend/api/draft.py
+!backend/scripts/
+!backend/scripts/__init__.py
+!backend/scripts/export_backend_mvp.py
+!backend/services/
+!backend/services/__init__.py
+!backend/services/common/
+!backend/services/common/file_utils.py
+!backend/services/common/hero_grade_utils.py
+!backend/services/llm/
+!backend/services/llm/__init__.py
+!backend/services/llm/ban_advisor.py
+!backend/services/llm/pick_advisor.py
+!backend/services/llm/draft_principles.py
+!backend/services/llm/pick_principles.py
+!backend/services/modeling/
+!backend/services/modeling/__init__.py
+!backend/services/modeling/advisor_pipeline.py
+!backend/services/modeling/contextual_mvp.py
+!backend/services/modeling/ban_constants.py
+!backend/services/modeling/pick_constants.py
+!backend/services/modeling/ban_recommender.py
+!backend/services/modeling/features.py
+!backend/services/modeling/feature_engineering_profile.py
+!backend/services/modeling/hero_power_model.py
+!backend/services/modeling/mvp_artifacts/
+!backend/services/modeling/mvp_artifacts/contextual-v1.json

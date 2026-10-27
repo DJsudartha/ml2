@@ -1,5 +1,9 @@
 # ML² MVP deployment runbook
 
+For the current live Pages and Render service and the proposed Docker path, see
+[`docker-cicd-runbook.md`](docker-cicd-runbook.md). This earlier runbook records
+pre-deployment preparation and its host-status statements are historical.
+
 Status: configuration preparation only. No deployment or merge is authorized by this runbook.
 
 ## Established configuration and remaining setting

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:deploy": "node scripts/validate-deployment-env.mjs && npm run build",
+    "test:deploy": "node --test scripts/validate-deployment-env.check.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",

@@ -1,7 +1,7 @@
 import type { Hero } from "../types/draft";
 
 const BASE = import.meta.env.BASE_URL;
-// Last update: 2026-03-01 (March 1, 2026)
+// Last update: 2026-10-22
 export const heroes: Hero[] = [
   { id: 1, name: "Miya", role: ["Marksman"], image: `${BASE}HeroIcon/Miya.png` },
   { id: 2, name: "Balmond", role: ["Fighter"], image: `${BASE}HeroIcon/Balmond.png` },
@@ -134,5 +134,6 @@ export const heroes: Hero[] = [
   { id: 129, name: "Zetian", role: ["Mage"], image: `${BASE}HeroIcon/Zetian.png` },
   { id: 130, name: "Obsidia", role: ["Marksman"], image: `${BASE}HeroIcon/Obsidia.png` },
   { id: 131, name: "Sora", role: ["Fighter", "Assassin"], image: `${BASE}HeroIcon/Sora.png` },
-  { id: 132, name: "Marcel", role: ["Support"], image: `${BASE}HeroIcon/Marcel.png`}
+  { id: 132, name: "Marcel", role: ["Support"], image: `${BASE}HeroIcon/Marcel.png`},
+  { id: 133, name: "Hirara", role: ["Assassin"], image: `${BASE}HeroIcon/Hirara.png`}
 ];

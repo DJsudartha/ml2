@@ -50,10 +50,14 @@ artifact; no raw datasets, reviews, holdouts, frontend bundle or local secrets
 enter the build context. `PORT` defaults to 10000 and can be overridden.
 `LOCAL_DRAFT_ADVISOR_BACKEND=tfidf` avoids optional embedding downloads.
 
-Record **measured** image bytes and steady-state/peak memory from a successful
-CI Docker job before approving Render Free. The container is run with the same
-512 MiB memory ceiling, but a short smoke test does not prove peak memory under
-production traffic. Check Render memory metrics after cutover as well.
+The first [PR CI Docker run](https://github.com/DJsudartha/ml2/actions/runs/40563202186)
+built an image of **487,197,034 bytes** (about 465 MiB). After health, pick,
+ban, advice, chronology and CORS smoke requests, Docker reported **113.8 MiB**
+of resident container memory under a **512 MiB** limit. The smoke passed. Image
+bytes occupy disk and are not the service RAM requirement. This short test
+demonstrates basic compatibility with the Free memory limit, but does not
+establish peak memory under production traffic; check Render memory metrics
+after cutover as well.
 
 ## Render cutover, only after approval
 

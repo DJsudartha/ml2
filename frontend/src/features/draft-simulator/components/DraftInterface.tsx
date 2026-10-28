@@ -5,7 +5,7 @@ import type {
   RecommendationResponse,
   RecommendationRequest,
 } from "../types/draft.ts";
-import { API_BASE, fetchBanRecommendations, fetchPickRecommendations } from "../api.ts";
+import { API_BASE, fetchBanRecommendations, fetchPickRecommendations, isRetryableDraftError, prewarmBackend, shouldPrewarmBackend } from "../api.ts";
 import { draftOrder } from "../data/draftOrder";
 import { heroes } from "../data/heroes";
 import { TIME_PER_ACTION, SLOT_COUNT } from "../constants/draft.ts";
@@ -28,7 +28,12 @@ export function DraftInterface() {
     key: string;
     data?: RecommendationResponse;
     error?: string;
+    canRetry?: boolean;
   } | null>(null);
+  const [backendState, setBackendState] = useState<"unchecked" | "connecting" | "reachable" | "ready" | "unavailable">(
+    shouldPrewarmBackend() ? "connecting" : "unchecked",
+  );
+  const [retryNonce, setRetryNonce] = useState(0);
 
   const [bannedHeroIds, setBannedHeroIds] = useState<
     Set<number>
@@ -49,8 +54,24 @@ export function DraftInterface() {
   ]);
   const activeResult = recommendationResult?.key === requestKey ? recommendationResult : null;
   const recommendations = activeResult?.data?.recommendations ?? [];
-  const recommendationsLoading = hasDraftStarted && !!currentStep && !activeResult;
   const recommendationError = activeResult?.error ?? null;
+  const recommendationStatus = activeResult?.data ? "ready" :
+    activeResult?.error ? "unavailable" :
+      backendState === "reachable" || backendState === "ready" ? "processing" : "connecting";
+
+  useEffect(() => {
+    if (!shouldPrewarmBackend()) return;
+    const controller = new AbortController();
+    prewarmBackend(controller.signal).then(
+      () => setBackendState((current) => current === "connecting" ? "reachable" : current),
+      () => {
+        if (!controller.signal.aborted) {
+          setBackendState((current) => current === "connecting" ? "unavailable" : current);
+        }
+      },
+    );
+    return () => controller.abort();
+  }, []);
 
   const getRandomAvailableHero = useCallback(() => {
   const availableHeroes = heroes.filter(
@@ -132,7 +153,14 @@ const handleResetDraft = () => {
   setTimeRemaining(TIME_PER_ACTION);
   setHasDraftStarted(false);
   setRecommendationResult(null);
+  setRetryNonce(0);
 }
+
+const handleRetryRecommendations = () => {
+  setRecommendationResult(null);
+  setBackendState("connecting");
+  setRetryNonce((value) => value + 1);
+};
 
   const blueBanActiveIndex =
     currentAction === "ban" && currentTeam === "blue" ? blueBans.length : -1;
@@ -196,14 +224,19 @@ useEffect(() => {
         currentStep.action === "ban"
           ? fetchBanRecommendations
           : fetchPickRecommendations;
-      const data = await requestAdvice(payload, controller.signal);
+      const data = await requestAdvice(payload, controller.signal, () => {
+        if (!controller.signal.aborted) setBackendState("connecting");
+      });
       if (controller.signal.aborted) return;
+      setBackendState("ready");
       setRecommendationResult({ key: requestKey, data });
     } catch (err) {
       if (controller.signal.aborted) return;
+      setBackendState("unavailable");
       setRecommendationResult({
         key: requestKey,
         error: `Recommendations unavailable from ${API_BASE}. ${err instanceof Error ? err.message : "Request failed."}`,
+        canRetry: isRetryableDraftError(err),
       });
     }
   }
@@ -211,7 +244,7 @@ useEffect(() => {
   fetchData();
 
   return () => controller.abort();
-}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted, requestKey]);
+}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted, requestKey, retryNonce]);
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col overflow-hidden">
@@ -270,8 +303,10 @@ useEffect(() => {
         team="blue"
         recommendations={recommendations}
         visible={hasDraftStarted && currentTeam === "blue"}
-        isLoading={recommendationsLoading}
+        status={recommendationStatus}
         error={recommendationError}
+        canRetry={activeResult?.canRetry ?? false}
+        onRetry={handleRetryRecommendations}
         limitation={activeResult?.data?.training_context?.limitation}
         isDoublePick={currentStep?.count === 2}
       />
@@ -294,8 +329,10 @@ useEffect(() => {
         team="red"
         recommendations={recommendations}
         visible={hasDraftStarted && currentTeam === "red"}
-        isLoading={recommendationsLoading}
+        status={recommendationStatus}
         error={recommendationError}
+        canRetry={activeResult?.canRetry ?? false}
+        onRetry={handleRetryRecommendations}
         limitation={activeResult?.data?.training_context?.limitation}
         isDoublePick={currentStep?.count === 2}
       />

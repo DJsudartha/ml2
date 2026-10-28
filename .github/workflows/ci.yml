@@ -27,19 +27,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Optional: only if you have eslint configured
       - name: Lint
-        run: npm run lint --if-present
+        run: npm run lint
 
-      # Typecheck (recommended)
       - name: Typecheck
-        run: npx tsc -p tsconfig.app.json --noEmit
+        run: npm run typecheck
+
+      - name: Deployment URL guard
+        run: npm run test:deploy
 
       - name: Test
         run: npm run test
 
-      - name: Build
-        run: npm run build
+      - name: Production build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: npm run build:deploy
 
   backend:
     name: backend
@@ -48,22 +51,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Detect backend changes
-        id: backend-changes
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]] && \
-             git diff --quiet "origin/${{ github.base_ref }}"...HEAD -- backend tests; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Setup Python
-        if: steps.backend-changes.outputs.run == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -73,15 +62,66 @@ jobs:
             backend/requirements-dev.txt
 
       - name: Install dependencies
-        if: steps.backend-changes.outputs.run == 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 
-      - name: Test
-        if: steps.backend-changes.outputs.run == 'true'
+      - name: Backend tests (including focused draft API tests)
         run: python -m pytest -q
 
       - name: Lint
-        if: steps.backend-changes.outputs.run == 'true'
-        run: ruff check backend tests
+        run: ruff check backend tests .github/scripts
+
+  docker:
+    name: docker
+    needs: [frontend, backend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python for smoke test
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build serving image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          push: false
+          tags: ml2-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start container under Render Free memory limit
+        run: docker run --detach --name ml2-ci --memory=512m --publish 127.0.0.1:10000:10000 --env PORT=10000 ml2-backend:ci
+
+      - name: Wait for health and smoke real API
+        shell: bash
+        run: |
+          for attempt in {1..45}; do
+            if curl --fail --silent http://127.0.0.1:10000/health > /dev/null; then
+              break
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx ml2-ci; then
+              docker logs ml2-ci
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:10000/health > /dev/null
+          python .github/scripts/smoke_backend.py http://127.0.0.1:10000
+          docker image inspect ml2-backend:ci --format 'Image bytes: {{.Size}}'
+          docker stats ml2-ci --no-stream --format 'Container memory: {{.MemUsage}}'
+
+      - name: Container logs and cleanup
+        if: always()
+        run: |
+          docker logs ml2-ci || true
+          docker rm --force ml2-ci || true

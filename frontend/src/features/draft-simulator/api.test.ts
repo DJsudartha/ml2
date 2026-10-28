@@ -5,6 +5,9 @@ import {
   fetchBanRecommendations,
   fetchPickRecommendations,
   fetchPickAdvice,
+  prewarmBackend,
+  RETRY_POLICY,
+  shouldPrewarmBackend,
 } from "./api";
 import type {
   AdviceResponse,
@@ -47,6 +50,7 @@ const advice: AdviceResponse = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -96,24 +100,105 @@ describe("draft simulator API client", () => {
     );
   });
 
-  it("throws a helpful error when the local backend returns an error", async () => {
-    mockFetch({ ok: false, status: 503 });
+  it("prewarms through health without claiming recommendation readiness", async () => {
+    const fetchMock = mockFetch({ ok: true, json: async () => ({ status: "ok" }) });
+    expect(shouldPrewarmBackend()).toBe(false);
+    expect(shouldPrewarmBackend("https://ml2-backend-sfy3.onrender.com")).toBe(true);
+    await expect(prewarmBackend()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/health`, expect.objectContaining({ method: "GET" }));
+  });
+
+  it("does not retry invalid draft states", async () => {
+    const fetchMock = mockFetch({ ok: false, status: 422 });
 
     await expect(fetchBanAdvice(payload)).rejects.toThrow(
-      "Local draft API request failed: 503",
+      "Draft API request failed: 422",
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a transient 503 and recovers with the same draft payload", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, json: async () => recommendation });
+    vi.stubGlobal("fetch", fetchMock);
+    const onRetry = vi.fn();
+    const pending = fetchBanRecommendations(payload, undefined, onRetry);
+    await vi.advanceTimersByTimeAsync(RETRY_POLICY.delaysMs[0]);
+    await expect(pending).resolves.toEqual(recommendation);
+    expect(onRetry).toHaveBeenCalledWith(2, 3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].body).toBe(JSON.stringify(payload));
+  });
+
+  it.each([502, 504])("retries HTTP %i once before recovery", async (status) => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status })
+      .mockResolvedValueOnce({ ok: true, json: async () => recommendation });
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = fetchBanRecommendations(payload);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(pending).resolves.toEqual(recommendation);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a network failure once before recovery", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ ok: true, json: async () => recommendation });
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = fetchBanRecommendations(payload);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(pending).resolves.toEqual(recommendation);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops after three transient failures", async () => {
+    vi.useFakeTimers();
+    const fetchMock = mockFetch({ ok: false, status: 503 });
+    const pending = fetchPickRecommendations(payload);
+    const rejection = expect(pending).rejects.toThrow("Draft API request failed: 503");
+    await vi.advanceTimersByTimeAsync(3_000);
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("times out each attempt even if fetch ignores abort", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = fetchPickRecommendations(payload);
+    const rejection = expect(pending).rejects.toThrow("Draft API request timed out.");
+    await vi.advanceTimersByTimeAsync(RETRY_POLICY.timeoutMs * 3 + 3_000);
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("cancels a pending retry when the draft state changes", async () => {
+    vi.useFakeTimers();
+    const fetchMock = mockFetch({ ok: false, status: 503 });
+    const controller = new AbortController();
+    const pending = fetchPickRecommendations(payload, controller.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 
 describe("recommendation response validation", () => {
-  it("uses the pick endpoint, preserves abort signals and orders by backend rank", async () => {
+  it("uses the pick endpoint, links abort signals and orders by backend rank", async () => {
     const second = { ...recommendation.recommendations[0], hero: "Yve", rank: 2 };
     const fetchMock = mockFetch({ ok: true, json: async () => ({ ...recommendation, recommendations: [second, recommendation.recommendations[0]] }) });
     const controller = new AbortController();
     const result = await fetchPickRecommendations(payload, controller.signal);
     expect(result.recommendations.map((row) => row.hero)).toEqual(["Akai", "Yve"]);
-    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/draft/recommend-picks`, expect.objectContaining({ signal: controller.signal }));
+    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE}/draft/recommend-picks`, expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it.each([

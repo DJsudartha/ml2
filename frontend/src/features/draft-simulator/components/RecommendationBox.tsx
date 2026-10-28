@@ -5,8 +5,10 @@ type RecommendationBoxProps = {
   team: "blue" | "red";
   recommendations: Recommendation[];
   visible: boolean;
-  isLoading: boolean;
+  status: "connecting" | "processing" | "ready" | "unavailable";
   error: string | null;
+  canRetry: boolean;
+  onRetry: () => void;
   limitation?: string | null;
   isDoublePick?: boolean;
 };
@@ -15,27 +17,45 @@ export function RecommendationBox({
   team,
   recommendations,
   visible,
-  isLoading,
+  status,
   error,
+  canRetry,
+  onRetry,
   limitation,
   isDoublePick,
 }: RecommendationBoxProps) {
   if (!visible) return null;
+
+  const statusLabel = status === "ready" ? "Ready" :
+    status === "unavailable" ? "Unavailable" : "Connecting";
 
   return (
     <div className="w-full rounded-xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent backdrop-blur-md p-3 text-white shadow-lg">
       <div className="recommendation-box__header">
         {team === "blue" ? "Blue Suggestions" : "Red Suggestions"}
       </div>
+      <div className="mt-1 text-xs text-gray-300" aria-label="Recommendation status">
+        Recommendations: {statusLabel}
+      </div>
 
       {isDoublePick && <p className="text-xs text-gray-300 my-2">Choose two heroes in either order. Suggestions update after each choice.</p>}
       {limitation && <p className="text-xs text-amber-200 my-2">{limitation}</p>}
-      {error ? (
+      {status === "unavailable" ? (
         <div className="text-sm text-red-300" role="alert">
-          {error}
+          <p>{error}</p>
+          {canRetry && <button type="button" onClick={onRetry} className="mt-2 rounded border border-red-300 px-2 py-1 text-white">
+            Retry recommendations
+          </button>}
+          <p className="mt-2 text-xs text-gray-300">The 30-second draft timer continues. You can still select heroes manually.</p>
         </div>
-      ) : isLoading ? (
-        <div className="text-sm text-gray-300" role="status">Loading recommendations...</div>
+      ) : status === "connecting" ? (
+        <div className="text-sm text-gray-300" role="status">
+          Connecting to backend. It may be waking up. The 30-second draft timer continues; you can select heroes manually.
+        </div>
+      ) : status === "processing" ? (
+        <div className="text-sm text-gray-300" role="status">
+          Backend reached. Processing recommendations. The 30-second draft timer continues.
+        </div>
       ) : recommendations.length === 0 ? (
         <div className="text-sm text-gray-300">No recommendations returned for this draft state.</div>
       ) : (

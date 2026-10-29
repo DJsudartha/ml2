@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ALLOW = {("MPLIDS18W5_0004", 2), ("MPLIDS18W6_0003", 1), ("MPLIDS18W7_0003", 1)}
@@ -20,6 +21,23 @@ def require(condition, message):
 
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+HOME_PATH = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/](?:Users|Documents and Settings)[\\/]|/(?:home|Users)/)[^\\/\s]+"
+)
+
+
+def require_portable_receipt(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            require_portable_receipt(key)
+            require_portable_receipt(item)
+    elif isinstance(value, list):
+        for item in value:
+            require_portable_receipt(item)
+    elif isinstance(value, str):
+        require(not HOME_PATH.search(value), "machine-specific home path in public receipt")
 
 
 def normalize(source):
@@ -77,6 +95,7 @@ def verify(root, receipt_pin=None, original=None):
     if receipt_pin is not None:
         require(sha(receipt_bytes) == receipt_pin, "receipt pin mismatch")
     receipt = json.loads(receipt_bytes)
+    require_portable_receipt(receipt)
     for name, expected in receipt["files"].items():
         require(Path(name).name == name, "invalid filename")
         require(sha((root / name).read_bytes()) == expected, "file hash mismatch")

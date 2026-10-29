@@ -7,7 +7,7 @@ import pytest
 from verify import normalize, sha, verify
 
 ROOT = Path(__file__).resolve().parent
-PIN = "9af09ce28e76a9810c0d555b0292e614002f34d83d2866b56b13eaabd9f9fa21"
+PIN = "bbaa2e318b32b9e25c594f0bca7c72cedb1bece824321bc3a6441dc1939309a7"
 
 
 def source():
@@ -113,3 +113,20 @@ def test_public_receipt_omits_private_source_references():
     assert "source_refs" not in receipt["prior_checks"]
     assert b"private/" not in receipt_bytes
     assert b"holdout/" not in receipt_bytes
+
+
+@pytest.mark.parametrize(
+    "home_path",
+    [
+        r"C:\Users\example\source.json",
+        "C:/Users/example/source.json",
+        "/home/example/source.json",
+        "/Users/example/source.json",
+    ],
+)
+def test_public_receipt_rejects_machine_specific_home_paths(tmp_path, home_path):
+    receipt = json.loads((ROOT / "receipt.json").read_bytes())
+    receipt["original_response"]["source_id"] = home_path
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(ValueError, match="machine-specific home path"):
+        verify(tmp_path)

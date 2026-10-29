@@ -3,9 +3,9 @@
   "kind": "candidate_source_recovery_receipt",
   "base_commit": "0861dc40473248d1d22ef0e975c411b6527298d9",
   "original_response": {
-    "external_path": "C:\\Users\\djsud\\.codex\\visualizations\\2026\\10\\28\\01a182ad-0c69-7533-b427-85c8da66e79e\\candidate-api-response-opaque.json",
     "sha256": "18aece3f90bf6b17344dea6f4f424cbc1921d02618b02e236b789743e850eb66",
-    "bytes": 27849
+    "bytes": 27849,
+    "source_id": "liquipedia-api-v3-match-mplids18-candidate-recovery-20261028"
   },
   "lookup": {
     "retrieved_at": "2026-10-28T13:32:45.460388+00:00",

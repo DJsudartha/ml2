@@ -55,7 +55,7 @@ Positions 1-3 are the first phase; positions 4-5 are the second phase.
 
 One bounded authenticated GET to `https://api.liquipedia.net/api/v3/match` used `wiki=mobilelegends`, `limit=3` and conditions restricted to the three exact match IDs. The response was retrieved at `2026-10-28T13:32:45.460388+00:00`, with HTTP 200, 27,849 bytes and exactly three match records. Explicit game allowlisting preceded decoding of game payloads; other games in those series stayed opaque. No API key is stored here.
 
-The original response remains outside the worktree at `C:/Users/djsud/.codex/visualizations/2026/10/28/01a182ad-0c69-7533-b427-85c8da66e79e/candidate-api-response-opaque.json`, SHA-256 `18aece3f90bf6b17344dea6f4f424cbc1921d02618b02e236b789743e850eb66`. The scoped receipt records exact UTF-8 byte offsets, JSON pointers, game-span hashes and allowed match-metadata spans. Optional replay checks the whole original hash first, then reads only those spans; it never JSON-decodes the whole response.
+The original response remains outside the repository; supply its local path only at replay time with `--original`. Its SHA-256 is `18aece3f90bf6b17344dea6f4f424cbc1921d02618b02e236b789743e850eb66` and its byte length is 27,849. The scoped receipt records exact UTF-8 byte offsets, JSON pointers, game-span hashes and allowed match-metadata spans. Optional replay checks the whole original hash first, then reads only those spans; it never JSON-decodes the whole response.
 
 The prior readiness SHA-256 remains `62d018ca9a5f21739cfccd34299d49d18dd5d2ae1ce5438ad687f5d6ab013b08`. The read-only audit rechecked all 10 referenced-file hashes, candidate identity/team/roster consistency and all 148 packaged asset hashes. Existing/protected match disjointness was checked using lexical identity-only access. No protected roster, label, image, prediction or result payload was decoded. The path-level checks of private source files remain in a local-only receipt backup. The public receipt retains only the source spans, file hashes, and aggregate consistency counts. Hashes identify bytes and do not authenticate the underlying factual claims.
 
@@ -65,7 +65,7 @@ The old 53-series normalized raw snapshot has none of the three exact games. Old
 
 `experimental/candidate_source_recovery/supplement.json` contains exactly three provisional metadata records. `scoped-source.json` retains only permitted match metadata; the three separate game JSON files preserve exact original allowed game bytes. `receipt.json` binds every data file, response/span hashes, pointers, source request and field mapping. Its private-source path/hash audit details are retained only in ignored `private/candidate_source_recovery/receipt-original-with-private-checks.json`. `verify.py` checks replay and consistency; `test_verify.py` exercises rejection paths.
 
-The external receipt pin is `9af09ce28e76a9810c0d555b0292e614002f34d83d2866b56b13eaabd9f9fa21`. Use that pin when validating copied artifacts; a self-reported receipt hash alone is not an independent trust anchor.
+The external receipt pin is `bbaa2e318b32b9e25c594f0bca7c72cedb1bece824321bc3a6441dc1939309a7`. Use that pin when validating copied artifacts; a self-reported receipt hash alone is not an independent trust anchor.
 
 This supplement has production/training approval disabled and remains unreviewed. It is deliberately not a replacement importer manifest. The old readiness manifest still reports five of eight source-backed games; this separate supplement recovers the other three, supporting future eight-of-eight metadata coverage only after an explicitly versioned readiness integration. No candidate becomes automatically eligible for training. The current importer and its prior untracked dependencies are absent from latest main; none were copied or changed here.
 
@@ -76,13 +76,14 @@ Canonical chronology is preserved: B1 -> {R1,R2} -> {B2,B3} -> R3; second ban ph
 From the isolated worktree with Python 3.12:
 
 ```powershell
-python experimental/candidate_source_recovery/verify.py --receipt-sha256 9af09ce28e76a9810c0d555b0292e614002f34d83d2866b56b13eaabd9f9fa21
-python experimental/candidate_source_recovery/verify.py --receipt-sha256 9af09ce28e76a9810c0d555b0292e614002f34d83d2866b56b13eaabd9f9fa21 --original C:/Users/djsud/.codex/visualizations/2026/10/28/01a182ad-0c69-7533-b427-85c8da66e79e/candidate-api-response-opaque.json
+python experimental/candidate_source_recovery/verify.py --receipt-sha256 bbaa2e318b32b9e25c594f0bca7c72cedb1bece824321bc3a6441dc1939309a7
+$originalResponse = Read-Host 'Path to the local original Liquipedia API response JSON'
+python experimental/candidate_source_recovery/verify.py --receipt-sha256 bbaa2e318b32b9e25c594f0bca7c72cedb1bece824321bc3a6441dc1939309a7 --original $originalResponse
 python -m pytest -q experimental/candidate_source_recovery/test_verify.py -p no:cacheprovider
 python -m ruff check experimental/candidate_source_recovery
 ```
 
-Result: **17 focused tests passed (0.16s)**; scoped Ruff passed. Original-byte replay passed for all three games and all selected match metadata spans, verifying 30 explicit source bans. Cases cover receipt/data tampering, identity/subgroup conflicts, duplicated sides, missing/duplicate bans, date/patch mismatch, wrong tournament, candidate roster/side drift, disabled approval boundaries, roster permutation invariance and preservation of ban positions. These checks validate this supplement, not the old importer or the full application. No full application suite was run because application code is unchanged.
+Result: **22 focused tests passed (0.16s)**; scoped Ruff passed. Original-byte replay passed for all three games and all selected match metadata spans, verifying 30 explicit source bans. Cases cover receipt/data tampering, identity/subgroup conflicts, duplicated sides, missing/duplicate bans, date/patch mismatch, wrong tournament, candidate roster/side drift, disabled approval boundaries, roster permutation invariance, preservation of ban positions, and rejection of machine-specific home paths in public receipts. These checks validate this supplement, not the old importer or the full application. No full application suite was run because application code is unchanged.
 
 ## Economic stopping point
 

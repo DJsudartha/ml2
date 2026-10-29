@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "kind": "candidate_source_recovery_receipt",
+  "base_commit": "0861dc40473248d1d22ef0e975c411b6527298d9",
+  "original_response": {
+    "external_path": "C:\\Users\\djsud\\.codex\\visualizations\\2026\\10\\28\\01a182ad-0c69-7533-b427-85c8da66e79e\\candidate-api-response-opaque.json",
+    "sha256": "18aece3f90bf6b17344dea6f4f424cbc1921d02618b02e236b789743e850eb66",
+    "bytes": 27849
+  },
+  "lookup": {
+    "retrieved_at": "2026-10-28T13:32:45.460388+00:00",
+    "endpoint": "https://api.liquipedia.net/api/v3/match",
+    "params": {
+      "wiki": "mobilelegends",
+      "limit": 3,
+      "conditions": "([[match2id::MPLIDS18W5_0004]] OR [[match2id::MPLIDS18W6_0003]] OR [[match2id::MPLIDS18W7_0003]])"
+    },
+    "attempt": "network-enabled",
+    "status_code": 200,
+    "response_bytes": 27849,
+    "response_sha256": "18aece3f90bf6b17344dea6f4f424cbc1921d02618b02e236b789743e850eb66",
+    "returned_records": 3,
+    "target_matches": 3
+  },
+  "source_game_spans": [
+    {
+      "game_file": "MPLIDS18W5_0004_G2.json",
+      "game_pointer": "/result/0/match2games/1",
+      "start_byte": 6260,
+      "end_byte": 7885,
+      "sha256": "8e5f39cce15d7fcec0067bdcac2946a8364c272041612f382caa055c0ca3087b",
+      "metadata_spans": {
+        "match2id": {
+          "start_byte": 144,
+          "end_byte": 161,
+          "sha256": "905ac869e64048a06a434a000298fdf89e88d07bb68b186eea55b9d8a64d15b7"
+        },
+        "date": {
+          "start_byte": 362,
+          "end_byte": 383,
+          "sha256": "3464fada366d729e947a87b0e661568602d59ad05d852b60af6b2a033aebc52b"
+        },
+        "patch": {
+          "start_byte": 346,
+          "end_byte": 354,
+          "sha256": "3208de13d4637ff2a4ca1a81500a96c33e0c8f56c8034808fc12e23cb6272a9d"
+        },
+        "pagename": {
+          "start_byte": 38,
+          "end_byte": 81,
+          "sha256": "a5ccb11ea9257f7d3bc80aee7e32b520c61a90f1996485fb0bc8fa9ec042b5d1"
+        },
+        "tournament": {
+          "start_byte": 569,
+          "end_byte": 594,
+          "sha256": "5ea36636e702e01b7a1e482ecb0c6a2b70e1281830a373bf22a8767f569013b6"
+        },
+        "match2opponents": {
+          "start_byte": 1754,
+          "end_byte": 4637,
+          "sha256": "031be612635ed8005fa674329968682c32ff8d439b64ee584823f54c7f3aa011"
+        }
+      }
+    },
+    {
+      "game_file": "MPLIDS18W6_0003_G1.json",
+      "game_pointer": "/result/1/match2games/0",
+      "start_byte": 14085,
+      "end_byte": 15664,
+      "sha256": "76c91c1d790889f7bfba9efb98c76c85e448e00590a5b1dce24f026096e0da80",
+      "metadata_spans": {
+        "match2id": {
+          "start_byte": 8584,
+          "end_byte": 8601,
+          "sha256": "fa6a309fcb30d71dab1b1af793b60be1c7d3cd51be8188acd79f2618c68ed17f"
+        },
+        "date": {
+          "start_byte": 8802,
+          "end_byte": 8823,
+          "sha256": "04003b2b73f55e77d07394566bf726e9581a4f53d43ef6cc9d28d496b5be796b"
+        },
+        "patch": {
+          "start_byte": 8786,
+          "end_byte": 8794,
+          "sha256": "3208de13d4637ff2a4ca1a81500a96c33e0c8f56c8034808fc12e23cb6272a9d"
+        },
+        "pagename": {
+          "start_byte": 8478,
+          "end_byte": 8521,
+          "sha256": "a5ccb11ea9257f7d3bc80aee7e32b520c61a90f1996485fb0bc8fa9ec042b5d1"
+        },
+        "tournament": {
+          "start_byte": 9009,
+          "end_byte": 9034,
+          "sha256": "5ea36636e702e01b7a1e482ecb0c6a2b70e1281830a373bf22a8767f569013b6"
+        },
+        "match2opponents": {
+          "start_byte": 10627,
+          "end_byte": 14069,
+          "sha256": "6316a9f7a3534a6b9e6a1019c778743bb133c0444f06ce15f49079a683da5999"
+        }
+      }
+    },
+    {
+      "game_file": "MPLIDS18W7_0003_G1.json",
+      "game_pointer": "/result/2/match2games/0",
+      "start_byte": 23133,
+      "end_byte": 24698,
+      "sha256": "114fd18a7c15994e7dd17ea588fd9dbec1664a3d0b4dbc55b42076e73a8c71b9",
+      "metadata_spans": {
+        "match2id": {
+          "start_byte": 18973,
+          "end_byte": 18990,
+          "sha256": "20fad3e58fc5872db706cd5d4e2112b945623e9de96cb69f91f5d5cb65cb01a5"
+        },
+        "date": {
+          "start_byte": 19191,
+          "end_byte": 19212,
+          "sha256": "8ed5e9864d1d8ac05635d3bc10ec6659be62cce5c250a528c5731d8d060d5cc8"
+        },
+        "patch": {
+          "start_byte": 19175,
+          "end_byte": 19183,
+          "sha256": "3208de13d4637ff2a4ca1a81500a96c33e0c8f56c8034808fc12e23cb6272a9d"
+        },
+        "pagename": {
+          "start_byte": 18867,
+          "end_byte": 18910,
+          "sha256": "a5ccb11ea9257f7d3bc80aee7e32b520c61a90f1996485fb0bc8fa9ec042b5d1"
+        },
+        "tournament": {
+          "start_byte": 19398,
+          "end_byte": 19423,
+          "sha256": "5ea36636e702e01b7a1e482ecb0c6a2b70e1281830a373bf22a8767f569013b6"
+        },
+        "match2opponents": {
+          "start_byte": 20608,
+          "end_byte": 23117,
+          "sha256": "39d94b7cb115f2c9307c8904e7b6dabeed8e787015d31e603fffa6ba8dca2d0d"
+        }
+      }
+    }
+  ],
+  "files": {
+    "scoped-source.json": "8ca07bf4eea0a217670dd8bfb58abe1cea4dd52cb612e655c717262d15a62baa",
+    "supplement.json": "e199192c78f48abd32d3a3092d81f2e15e9ab7510962b00af14fc607e6719f07",
+    "MPLIDS18W5_0004_G2.json": "8e5f39cce15d7fcec0067bdcac2946a8364c272041612f382caa055c0ca3087b",
+    "MPLIDS18W6_0003_G1.json": "76c91c1d790889f7bfba9efb98c76c85e448e00590a5b1dce24f026096e0da80",
+    "MPLIDS18W7_0003_G1.json": "114fd18a7c15994e7dd17ea588fd9dbec1664a3d0b4dbc55b42076e73a8c71b9"
+  },
+  "prior_checks": {
+    "readiness_sha256": "62d018ca9a5f21739cfccd34299d49d18dd5d2ae1ce5438ad687f5d6ab013b08",
+    "candidate_consistency": {
+      "target_id_team_rosters_match": true,
+      "packaged_assets_hash_checked": 148
+    }
+  },
+  "mapping": {
+    "identity": "metadata.match2id + game.match2gameid (subgroup must agree)",
+    "date_patch": "game.date/patch equal match metadata date/patch",
+    "team_name": "match2opponents[id=n].name",
+    "side": "game.extradata.team{n}side",
+    "roster": "team{n}champion1..5 compared as sets; no pick chronology inferred",
+    "ban_positions": "team{n}ban1..5 directly; no fallback enumeration",
+    "phase": "positions1..3 before B1 through R3;4..5 after R3 before R4; unordered double-picks"
+  }
+}

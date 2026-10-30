@@ -384,6 +384,25 @@ More detail lives in `CONTRIBUTING.md`.
 
 ## Quality Checks
 
+After installing the frontend and backend dependencies above, run checks from the
+repository root (no root `npm install` is needed):
+
+```bash
+npm test           # frontend and backend tests
+npm run check      # launcher tests, frontend checks, backend tests and lint
+npm run test:tools # isolated Python launcher tests; Node only
+```
+
+The Python launcher uses `PYTHON` when set (one executable path, without shell
+quotes or arguments), then `VIRTUAL_ENV`, then a root or backend `.venv`, then
+`python`/`python3` on PATH and the Windows `py -3` launcher. A selected environment
+is authoritative: failures do not silently switch to a different interpreter.
+
+`check` uses the local frontend `build`, which defaults to the local API. It also
+runs the deployment guard's unit tests, but does not validate a production API URL
+or run Docker smoke tests. CI remains the source of truth for deployment checks:
+its `build:deploy` requires an explicit `VITE_API_BASE_URL`.
+
 Run these before opening a pull request:
 
 ```bash

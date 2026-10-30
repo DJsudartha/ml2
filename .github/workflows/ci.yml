@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Python launcher tests
+        run: node --test ../scripts/run-python-module.test.mjs
+
       - name: Lint
         run: npm run lint
 

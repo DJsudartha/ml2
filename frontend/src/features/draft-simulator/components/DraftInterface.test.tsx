@@ -120,11 +120,9 @@ describe("DraftInterface", () => {
     }
   }, 15000);
 
-  it("shows a useful message when the local backend is unavailable", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 503 } as Response),
-    );
+  it("shows an invalid-state error without retrying", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 422 } as Response);
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<DraftInterface />);
 
@@ -133,6 +131,8 @@ describe("DraftInterface", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Recommendations unavailable from http://127.0.0.1:8000",
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /retry recommendations/i })).not.toBeInTheDocument();
   });
 
   it("counts down after the draft starts", async () => {
@@ -149,6 +149,111 @@ describe("DraftInterface", () => {
 
 
 describe("live recommendation lifecycle", () => {
+  it("keeps the timer and manual draft active during a slow recommendation", async () => {
+    vi.useFakeTimers();
+    let resolveRequest!: (value: Response) => void;
+    const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DraftInterface />);
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    expect(screen.getByRole("status")).toHaveTextContent("Connecting to backend");
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Connecting");
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(screen.getByText("25")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => resolveRequest({
+      ok: true, json: async () => recommendationResponse,
+    } as Response));
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Ready");
+    expect(screen.getByText("#1 Akai")).toBeInTheDocument();
+  });
+
+  it("shows backend wake-up during a transient 503 and then recovers", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => recommendationResponse } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DraftInterface />);
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status")).toHaveTextContent("It may be waking up");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Ready");
+    expect(screen.getByText("#1 Akai")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers manual retry after persistent 503 while draft progress stays usable", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DraftInterface />);
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Unavailable");
+    expect(screen.getByRole("alert")).toHaveTextContent("The 30-second draft timer continues");
+    expect(screen.getByText("27")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Miya"));
+    expect(screen.getByLabelText("Draft phase")).toHaveTextContent("Red / Ban phase 1");
+    expect(screen.getByText("30")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ ...recommendationResponse, team: "red" }) } as Response);
+    fireEvent.click(screen.getByRole("button", { name: /retry recommendations/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Ready");
+  });
+
+  it("cancels a retry after a rapid action and reset", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockImplementation((_url: string, init: RequestInit) => Promise.resolve({
+        ok: true,
+        json: async () => ({ ...recommendationResponse, team: JSON.parse(String(init.body)).team }),
+      } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DraftInterface />);
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByText("Miya"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(requestBodyAt(fetchMock, 1).blue_bans).toEqual(["Miya"]);
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Ready");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(requestBodyAt(fetchMock, 2).blue_bans).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("cancels a scheduled retry when the draft is reset", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockImplementation((_url: string, init: RequestInit) => Promise.resolve({
+        ok: true,
+        json: async () => ({ ...recommendationResponse, team: JSON.parse(String(init.body)).team }),
+      } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DraftInterface />);
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Recommendation status")).toHaveTextContent("Ready");
+  });
+
   it("sends only completed actions throughout all seven batches and both ban phases", async () => {
     const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => Promise.resolve({
       ok: true, json: async () => ({ team: JSON.parse(String(init.body)).team, recommendations: [] }),
@@ -199,7 +304,7 @@ describe("live recommendation lifecycle", () => {
     expect(screen.getByText("#1 Akai")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /balmond/i }));
     expect(screen.queryByText("#1 Akai")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Loading");
+    expect(screen.getByRole("status")).toHaveTextContent("Processing");
     fireEvent.click(screen.getByRole("button", { name: /reset/i }));
     fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
     await act(async () => pending[3].resolve({ ok: true, json: async () => recommendationResponse } as Response));

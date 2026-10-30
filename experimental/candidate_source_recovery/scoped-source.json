@@ -1,0 +1,84 @@
+{
+  "allowlist": [
+    [
+      "MPLIDS18W5_0004",
+      2
+    ],
+    [
+      "MPLIDS18W6_0003",
+      1
+    ],
+    [
+      "MPLIDS18W7_0003",
+      1
+    ]
+  ],
+  "games": [
+    {
+      "match_id": "MPLIDS18W5_0004",
+      "game_no": 2,
+      "metadata": {
+        "match2id": "MPLIDS18W5_0004",
+        "date": "2026-09-12 13:00:00",
+        "patch": "2.1.95",
+        "pagename": "MPL/Indonesia/Season_18/Regular_Season",
+        "tournament": "MPL Indonesia Season 18",
+        "match2opponents": [
+          {
+            "id": 1,
+            "name": "Natus Vincere"
+          },
+          {
+            "id": 2,
+            "name": "EVOS"
+          }
+        ]
+      },
+      "game_file": "MPLIDS18W5_0004_G2.json"
+    },
+    {
+      "match_id": "MPLIDS18W6_0003",
+      "game_no": 1,
+      "metadata": {
+        "match2id": "MPLIDS18W6_0003",
+        "date": "2026-09-18 13:15:00",
+        "patch": "2.1.95",
+        "pagename": "MPL/Indonesia/Season_18/Regular_Season",
+        "tournament": "MPL Indonesia Season 18",
+        "match2opponents": [
+          {
+            "id": 1,
+            "name": "RRQ Hoshi"
+          },
+          {
+            "id": 2,
+            "name": "Dewa United Esports"
+          }
+        ]
+      },
+      "game_file": "MPLIDS18W6_0003_G1.json"
+    },
+    {
+      "match_id": "MPLIDS18W7_0003",
+      "game_no": 1,
+      "metadata": {
+        "match2id": "MPLIDS18W7_0003",
+        "date": "2026-10-03 07:00:00",
+        "patch": "2.1.95",
+        "pagename": "MPL/Indonesia/Season_18/Regular_Season",
+        "tournament": "MPL Indonesia Season 18",
+        "match2opponents": [
+          {
+            "id": 1,
+            "name": "Alter Ego"
+          },
+          {
+            "id": 2,
+            "name": "Natus Vincere"
+          }
+        ]
+      },
+      "game_file": "MPLIDS18W7_0003_G1.json"
+    }
+  ]
+}

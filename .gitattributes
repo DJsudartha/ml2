@@ -1,1 +1,2 @@
 backend/services/modeling/mvp_artifacts/contextual-v1.json -text
+experimental/candidate_source_recovery/*.json -text whitespace=cr-at-eol

@@ -32,7 +32,7 @@
 
 - Treat `backend/main.py` as the active backend app entrypoint.
 - Treat `backend/api/draft.py` and `backend/services/modeling/advisor_pipeline.py` as the active API flow.
-- `backend/app/main.py` and `backend/models/draft_model.py` exist, but they do not match the current documented app flow. Do not treat them as the primary source of truth unless the task is explicitly about cleaning up legacy code.
+- `backend/models/draft_model.py` is legacy and does not match the current documented app flow. Do not treat it as the primary source of truth unless the task explicitly targets legacy code.
 
 ## Working Rules
 

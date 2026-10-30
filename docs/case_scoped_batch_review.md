@@ -12,12 +12,16 @@ the repository. It supports the existing candidate-only UI structure and fails
 if required code markers change. It does not regenerate proposals or use VOD/OCR,
 credentials, model artifacts or network access.
 
-From the repository root, using Python 3.12+:
+From the repository root, using Python 3.12+ on `PATH` (or an activated virtual
+environment), supply the path to your preserved candidate-only package at
+runtime. The output is a new, untracked directory under this checkout's
+`private/`; choose an unused name if the example output already exists.
 
 ```powershell
-$reviewPython = 'C:/Users/djsud/AppData/Local/Programs/Python/Python312/python.exe'
+$sourcePackage = (Resolve-Path (Read-Host 'Path to preserved candidate-only review package')).Path
+$reviewPython = 'python'  # Python 3.12+ on PATH, or an activated virtual environment
 & $reviewPython -m backend.scripts.build_case_scoped_batch_review `
-  --package 'C:/Users/djsud/OneDrive/Documents/GitHub/mlbb-draft-website/private/candidate_expansion_20261022/review_package' `
+  --package $sourcePackage `
   --output 'private/case_scoped_review_20261030' `
   --case 'MPL_Indonesia_Season_18_Regular_Season_games.json::series8::game1::1' 'MPLIDS18W1_0005' 1 `
   --case 'MPL_Indonesia_Season_18_Regular_Season_games.json::series9::game1::2' 'MPLIDS18W1_0006' 2
@@ -83,7 +87,7 @@ module and opens only freshly invented synthetic review data. The test creates
 its synthetic finalization in memory; no real finalization or review is created.
 
 ```powershell
-$env:ML2_REVIEW_ORACLE_ROOT = 'C:/Users/djsud/OneDrive/Documents/GitHub/mlbb-draft-website'
+$env:ML2_REVIEW_ORACLE_ROOT = (Resolve-Path (Read-Host 'Path to the repository containing the external strict importer')).Path
 & $reviewPython -m pytest -q tests/test_case_scoped_batch_review.py
 Remove-Item Env:ML2_REVIEW_ORACLE_ROOT
 ```

@@ -421,64 +421,158 @@ def make_review_template(cases: list) -> dict:
     }
 
 
-def _review_time(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
+def parse_review_response(raw: bytes) -> dict:
+    """Reject duplicate keys recursively before any response schema validation."""
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ReviewBatchError(f"invalid JSON constant: {value}")
+
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
+        value = json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+    except (ValueError, UnicodeError) as exc:
+        raise ReviewBatchError(f"invalid review JSON: {exc}") from exc
+    require(isinstance(value, dict), "review JSON must be an object")
+    return value
+
+
+def _review_time(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.utcoffset() is not None else None
     except ValueError:
-        return False
+        return None
 
 
-def validate_review_response(batch_file: dict, response: dict, *, complete: bool) -> None:
-    """Never finalize: validate a hash-bound human correction document only."""
+def _review_decisions(reviewed: dict, proposals: dict) -> list:
+    """Expand only an explicit human attestation; never fill omitted batches."""
+    identity_fields = {"game_id", "match_id", "game_no", "proposal_sha256"}
+    compact = "confirm_all_batches" in reviewed
+    require(set(reviewed) == identity_fields | ({"confirm_all_batches"} if compact else {"batches"}),
+            "mixed or unknown review case declarations")
+    if not compact:
+        require(isinstance(reviewed["batches"], list) and reviewed["batches"], "empty review batches")
+        return reviewed["batches"]
+    attestation = reviewed["confirm_all_batches"]
+    require(isinstance(attestation, dict) and set(attestation) == {
+        "decision", "all_seven_batches_checked", "batch_proposal_sha256",
+        "source_inspected", "source_note", "reviewed_at"}, "invalid compact attestation fields")
+    require(attestation["decision"] == "Confirm"
+            and attestation["all_seven_batches_checked"] is True and len(proposals) == 7,
+            "compact confirmation requires all-seven human attestation")
+    require(attestation["batch_proposal_sha256"] == {
+        name: proposal["proposal_sha256"] for name, proposal in proposals.items()},
+        "compact batch proposal hash mismatch")
+    return [{"batch": name, "proposal_sha256": proposal["proposal_sha256"],
+             "decision": "Confirm", "corrected_heroes": [],
+             "source_inspected": attestation["source_inspected"],
+             "source_note": attestation["source_note"], "reviewed_at": attestation["reviewed_at"]}
+            for name, proposal in proposals.items()]
+
+
+def validate_review_response(batch_file: dict, response: dict, *, complete: bool) -> dict:
+    """Validate explicit reviewed subsets and return counts, never finalize or mutate."""
+    require(isinstance(response, dict) and set(response) == {
+        "format", "proposal_assisted", "independent_blind_evaluation", "reviewer_id",
+        "source_inspection_attested", "review_started_at", "review_completed_at", "cases"},
+        "invalid review response fields")
     require(response["format"] == "proposal_assisted_review_response_v1"
             and response["proposal_assisted"] is True
-            and response["independent_blind_evaluation"] is False,
-            "review exposure mismatch")
-    cases = batch_file["cases"]
-    require(len(response["cases"]) == len(cases), "review case count mismatch")
-    if complete:
+            and response["independent_blind_evaluation"] is False, "review exposure mismatch")
+    cases, source_identities = {}, set()
+    for case in batch_file["cases"]:
+        gid = case["game_id"]
+        identity = (case["match_id"], case["game_no"])
+        require(isinstance(gid, str) and isinstance(identity[0], str)
+                and type(identity[1]) is int and gid not in cases
+                and identity not in source_identities, "duplicate or invalid source case identity")
+        names = [batch["batch"] for batch in case["batches"]]
+        require(all(isinstance(name, str) for name in names)
+                and len(names) == len(set(names)) and set(names) == set(BATCHES),
+                "duplicate or invalid source batch identity")
+        cases[gid] = case
+        source_identities.add(identity)
+    require(isinstance(response["cases"], list) and response["cases"], "empty review cases")
+    started = _review_time(response["review_started_at"])
+    completed = _review_time(response["review_completed_at"])
+
+    def require_interval():
         require(isinstance(response["reviewer_id"], str) and response["reviewer_id"].strip()
                 and response["source_inspection_attested"] is True
-                and _review_time(response["review_started_at"])
-                and _review_time(response["review_completed_at"]), "missing human identity/attestation/time")
-    for case, reviewed in zip(cases, response["cases"]):
-        require((reviewed["game_id"], reviewed["match_id"], reviewed["game_no"],
-                 reviewed["proposal_sha256"]) ==
-                (case["game_id"], case["match_id"], case["game_no"], case["proposal_sha256"]),
+                and started is not None and completed is not None,
+                "missing human identity/attestation/time")
+        require(started <= completed, "reversed review interval")
+
+    if complete:
+        require_interval()
+    counts = {"confirm": 0, "correct": 0, "uncertain": 0,
+              "unreviewed": sum(len(case["batches"]) for case in cases.values())}
+    seen_cases = set()
+    for reviewed in response["cases"]:
+        require(isinstance(reviewed, dict), "invalid review case")
+        gid = reviewed.get("game_id")
+        require(isinstance(gid, str) and gid in cases and gid not in seen_cases,
+                "unknown or duplicate review case identity")
+        seen_cases.add(gid)
+        case = cases[gid]
+        require(type(reviewed.get("game_no")) is int
+                and (reviewed.get("match_id"), reviewed.get("game_no"), reviewed.get("proposal_sha256"))
+                == (case["match_id"], case["game_no"], case["proposal_sha256"]),
                 "review proposal hash or identity mismatch")
-        require(len(reviewed["batches"]) == 7, "review batch count mismatch")
-        chosen = []
-        for proposal, decision in zip(case["batches"], reviewed["batches"]):
-            require((decision["batch"], decision["proposal_sha256"]) ==
-                    (proposal["batch"], proposal["proposal_sha256"]), "review batch hash mismatch")
+        proposals = {batch["batch"]: batch for batch in case["batches"]}
+        decisions = _review_decisions(reviewed, proposals)
+        chosen, seen_batches = [], set()
+        for decision in decisions:
+            require(isinstance(decision, dict) and set(decision) == {
+                "batch", "proposal_sha256", "decision", "corrected_heroes",
+                "source_inspected", "source_note", "reviewed_at"}, "invalid review decision fields")
+            name = decision["batch"]
+            require(isinstance(name, str) and name in proposals and name not in seen_batches,
+                    "unknown or duplicate review batch identity")
+            seen_batches.add(name)
+            proposal = proposals[name]
+            require(decision["proposal_sha256"] == proposal["proposal_sha256"], "review batch hash mismatch")
             action = decision["decision"]
-            require(action in ({"Confirm", "Correct", "Uncertain"} if complete
-                               else {None, "Confirm", "Correct", "Uncertain"}), "invalid review decision")
+            require(action is None or isinstance(action, str)
+                    and action in {"Confirm", "Correct", "Uncertain"}, "invalid review decision")
             if action is None:
-                require(not decision["source_inspected"] and not decision["corrected_heroes"]
+                require(decision["source_inspected"] is False and decision["corrected_heroes"] == []
                         and decision["source_note"] is None and decision["reviewed_at"] is None,
                         "unconfirmed field was prefilled")
                 continue
-            require(decision["source_inspected"] is True and _review_time(decision["reviewed_at"])
+            require_interval()
+            reviewed_at = _review_time(decision["reviewed_at"])
+            require(decision["source_inspected"] is True and reviewed_at is not None
                     and isinstance(decision["source_note"], str) and decision["source_note"].strip(),
                     "review lacks source inspection note/time")
+            require(started <= reviewed_at <= completed, "reviewed_at outside review interval")
             if action == "Correct":
                 heroes = decision["corrected_heroes"]
-                require(isinstance(heroes, list) and len(heroes) == len(proposal["heroes"])
+                require(isinstance(heroes, list) and all(isinstance(hero, str) for hero in heroes)
+                        and len(heroes) == len(proposal["heroes"])
                         and len(set(heroes)) == len(heroes) and set(heroes) != set(proposal["heroes"]),
                         "invalid correction")
-                side = "blue" if proposal["batch"] in {"B1", "B2,B3", "B4,B5"} else "red"
+                side = "blue" if name in {"B1", "B2,B3", "B4,B5"} else "red"
                 require(set(heroes) <= set(case["known_heroes"][side]), "correction team mismatch")
                 chosen.extend(heroes)
             else:
                 require(decision["corrected_heroes"] == [], "conflicting correction")
                 if action == "Confirm":
                     chosen.extend(proposal["heroes"])
+            counts[action.lower()] += 1
+            counts["unreviewed"] -= 1
         require(len(chosen) == len(set(chosen)), "conflicting corrected hero assignments")
-        if complete and all(b["decision"] != "Uncertain" for b in reviewed["batches"]):
+        if complete and len(decisions) == 7 and all(
+                b["decision"] in {"Confirm", "Correct"} for b in decisions):
             require(len(chosen) == 10, "corrected game incomplete")
+    return counts
 
 
 def write_output(output: Path, value: dict) -> str:
@@ -552,13 +646,11 @@ def main() -> None:
     if args.validate_response:
         require(args.review_batch is not None and args.review_batch_sha256 is not None,
                 "review batch and exact SHA-256 required for response validation")
-        batch = json.loads(pinned(args.review_batch, args.review_batch_sha256))
-        response = json.loads(args.validate_response.read_bytes())
-        validate_review_response(batch, response, complete=True)
-        decisions = [b["decision"] for c in response["cases"] for b in c["batches"]]
+        batch = parse_review_response(pinned(args.review_batch, args.review_batch_sha256))
+        response = parse_review_response(args.validate_response.read_bytes())
+        counts = validate_review_response(batch, response, complete=True)
         print(json.dumps({"valid": True, "finalized": False,
-                          "confirm": decisions.count("Confirm"), "correct": decisions.count("Correct"),
-                          "uncertain": decisions.count("Uncertain")}, indent=2))
+                          **counts}, indent=2))
         return
     require(args.historical is not None and args.output is not None,
             "historical source and output path required for export")

@@ -552,3 +552,15 @@ def test_json_integer_beyond_runtime_digit_limit_is_a_safe_input_rejection(tmp_p
     run, inputs = calibrate_inputs(inputs)
     decision = safe_disabled_decision(run, inputs[7], tmp_path)
     assert decision["failure_codes"] == ["input_unavailable_or_invalid_json"]
+
+
+def test_nonfinite_policy_version_is_rejected_before_missing_approval_report_serialization(tmp_path):
+    run, inputs = calibrate(tmp_path)
+    assert run.returncode == 0
+    original = inputs[6].read_text(encoding="utf-8")
+    altered = original.replace('"version": "synthetic-policy-v1"', '"version": 1e400')
+    assert altered != original
+    inputs[6].write_text(altered, encoding="utf-8")
+    run, output = evaluate(inputs)
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == ["invalid_policy_version"]

@@ -248,6 +248,8 @@ def metrics(rows, threshold, *, independent_only=False):
 def evaluate(args, now):
     policy, policy_hash = read_document(args.policy)
     require_document(policy, "order_qualification_policy")
+    if not nonempty(policy.get("version")):
+        raise QualificationError("invalid_policy_version")
     if policy.get("policy_kind") != POLICY_KIND:
         raise QualificationError("wrong_policy_kind")
     if any(not isinstance(policy.get(key), dict) for key in ("lineage", "requirements", "calibration")):

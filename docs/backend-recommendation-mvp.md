@@ -47,6 +47,51 @@ Optional configuration, set before starting the server:
 
 Configuration is cached; restart the server after changes. Corrupt artifacts and invalid pool configuration fail rather than silently changing the learned source. The response includes artifact/source hashes, dataset counts, fit status, and unknown historical eligibility warnings.
 
+## Incumbent baseline replay
+
+From a checkout, create a private output directory and run the public inference-only command:
+
+```powershell
+New-Item -ItemType Directory -Force private/baseline-replay | Out-Null
+python -m backend.scripts.replay_incumbent_baseline --output private/baseline-replay/run-001.json
+```
+
+Use a new output filename on every invocation. Reports are exclusively created; existing
+reports, inputs and artifacts are never overwritten. Exit code 0 means all seven synthetic
+pick cases matched the original scorer's frozen top-five rankings and scores. These cover
+the seven canonical batches; they are an incumbent reference, with no out-of-sample accuracy,
+optimal-pick, win-probability or promotion claim. The command neither fits a model nor
+changes serving configuration or the active process.
+
+The replay uses the existing `tests/mvp_golden.json`. Its SHA-256 after CRLF-to-LF normalization
+is `81b22622e661f5ae89117b05e1134af7ecedb614e84644e3373027e8f0df2ce5`; other input changes
+are rejected before decoding. `--inputs` permits an identical copy. Artifact bytes are
+checked exactly against the existing serving pin; no line-ending normalization applies to
+the artifact. Run without simulator-pool or disabled-hero overrides so the replay remains
+pinned. No network, source snapshot, training record, review label or media access is needed.
+
+The JSON report answers which incumbent bytes were checked, whether the synthetic inference
+results reproduced, and why a run was rejected. It separates stable `verification` content
+from `run` metadata (`run_id`, `entry_point=cli_replay`, and UTC start time).
+`verification_sha256` hashes UTF-8 JSON of `verification` with sorted keys and compact
+separators. That digest repeats across unchanged runs; the complete report hash changes
+with its run metadata. Preserve both when keeping operational evidence.
+
+`source_provenance` contains declarations authenticated by the pinned artifact, including
+snapshot, payload, dataset, simulator-source and historical source-code hashes. They are
+explicitly `declared_in_verified_artifact`; `source_bytes_checked=false` means the command
+has **not** independently checked those historical source bytes. It does not claim an
+unavailable source was verified. The existing API continues exposing `base_model_name` and
+`source_provenance` (artifact/source snapshot hashes and aggregate counts), with unchanged
+request/response shape and canonical turn behavior.
+
+Integrity, provenance, input or inference mismatches return exit code 1 and a structured
+rejection with a safe failure code and an actionable next step. They do not activate or
+replace anything. Report creation failures return a safe JSON failure on stdout; inspect
+the output location and choose a new file in an existing writable private directory.
+Reports and stdout omit local paths, raw source records and exception traces. Keep run
+reports private. This check does not establish deployment status or release readiness.
+
 ## Validation and limits
 
 52 focused tests passed, including the four actual unmocked FastAPI routes, the existing API forwarding/schema tests, legacy direct recommender/advisor regressions, all 20 draft actions, all seven golden score cases, partial-double invariance, first/second ban boundaries, disabled/known exclusions, catalog-only cold start, malformed source/artifact guards, and empty-statistic fallback. Scoped Ruff passed. Tests use `--basetemp private/backend-mvp-pytest` after creating the `private` parent.

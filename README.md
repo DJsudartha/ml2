@@ -53,6 +53,9 @@ The backend exposes draft recommendation routes under `/draft`, including:
 - `POST /draft/recommend-picks`
 - `POST /draft/advise-picks`
 
+The [incumbent baseline replay](docs/backend-recommendation-mvp.md#incumbent-baseline-replay)
+verifies pinned inference without training or changing the active model.
+
 ### Environment Variables
 
 `backend/.env.example` documents the Liquipedia API variables used by scraping and refresh scripts:

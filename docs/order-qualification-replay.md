@@ -31,7 +31,10 @@ synthetic games and illustrative numbers; those numbers are not recommended defa
    The immutable policy retains `approval_status=pending`; the separate approval
    record supplies sign-off. Editing a policy invalidates its approval.
 5. Run `evaluate` once the frozen policy and approval exist. It validates the frozen
-   contract and approval chronology before opening evaluation evidence. Missing
+   contract and approval chronology, then rederives the threshold and all numerical
+   requirements from the exact precommitted calibration and requirements bytes before
+   opening evaluation evidence. A new approval cannot authorize edited policy values
+   against an existing frozen evaluation contract. Missing
    approval leaves that payload unopened. Changes to the calibration material,
    proposed numerical requirements, components or exclusions require a new policy
    cycle. An evaluation that informed development or tuning must be retired under
@@ -68,6 +71,8 @@ python -m backend.scripts.replay_order_qualification evaluate `
   --calibration-manifest private/qualification/calibration-manifest.json `
   --evaluation-manifest private/qualification/evaluation-manifest.json `
   --exclusion-registry backend/data/pick_order_exclusions.json `
+  --calibration-results private/qualification/calibration-evidence.json `
+  --requirements private/qualification/proposed-requirements.json `
   --policy private/qualification/policy-v1.json `
   --approval private/qualification/policy-v1-approval.json `
   --evaluation-results private/qualification/evaluation-evidence.json `

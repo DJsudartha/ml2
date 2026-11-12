@@ -29,6 +29,7 @@ NEXT_ACTIONS = {
     "frozen_lineage_mismatch": "Restore the frozen manifests and exclusion registry or begin a fresh policy cycle.",
     "calibration_contract_mismatch": "Restore the precommitted calibration, numerical requirements and exclusions; any change needs a fresh untouched evaluation cycle.",
     "policy_approval_mismatch": "Supply an approval record bound to this exact policy version and byte hash.",
+    "frozen_policy_values_mismatch": "Restore the values deterministically derived from the precommitted calibration and numerical requirements; fresh approval cannot retarget the frozen evaluation.",
     "approval_order_not_established": "Provide honest timestamp precision establishing approval after policy freeze and before evaluation.",
 }
 
@@ -76,6 +77,17 @@ def require_document(value, kind):
 
 def nonempty(value):
     return isinstance(value, str) and bool(value.strip())
+
+
+def numerical_targets(value, failure_code):
+    if not isinstance(value, dict):
+        raise QualificationError(failure_code)
+    for key in TARGETS:
+        number = value.get(key)
+        if (isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number) or
+                (not 0 < number <= 1 if key in TARGETS[:2] else not isinstance(number, int) or number < 1)):
+            raise QualificationError(failure_code)
+    return {key: value[key] for key in TARGETS}
 
 
 def date_bounds(value):
@@ -230,14 +242,17 @@ def evaluate(args, now):
     require_document(policy, "order_qualification_policy")
     if policy.get("policy_kind") != POLICY_KIND:
         raise QualificationError("wrong_policy_kind")
+    if any(not isinstance(policy.get(key), dict) for key in ("lineage", "requirements", "calibration")):
+        raise QualificationError("invalid_policy_object_shape")
+    targets = numerical_targets(policy["requirements"], "invalid_frozen_requirements")
     if (policy.get("metric_definition_version") != METRIC_VERSION or
-            policy.get("lineage", {}).get("evaluator_source_sha256") != evaluator_hash()):
+            policy["lineage"].get("evaluator_source_sha256") != evaluator_hash()):
         raise QualificationError("evaluator_definition_mismatch")
     frozen_start, frozen_end = date_bounds(policy.get("frozen_at"))
     if frozen_end > now:
         raise QualificationError("policy_not_frozen_before_run")
     calibration, evaluation, lineage = load_manifests(args, frozen_start)
-    if any(policy.get("lineage", {}).get(key) != value for key, value in lineage.items()):
+    if any(policy["lineage"].get(key) != value for key, value in lineage.items()):
         raise QualificationError("frozen_lineage_mismatch")
     if any(policy.get(key) != calibration[key] for key in
            ("recognition_version", "commitment_rule_version", "data_origin")):
@@ -249,8 +264,9 @@ def evaluate(args, now):
         "recommendation_quality_evaluated": False,
         "underlying_evidence_bytes_checked": False,
         "provenance_basis": "hash_pinned_records_with_supplied_private_attestations",
-        "frozen_policy": {key: policy.get(key) for key in
-                          ("version", "metric_definition_version", "recognition_min_score", "recognition_version", "commitment_rule_version", "requirements")},
+        "frozen_policy": {**{key: policy.get(key) for key in
+                             ("version", "metric_definition_version", "recognition_min_score", "recognition_version", "commitment_rule_version")},
+                          "requirements": targets},
     }
     if args.approval is None:
         return {**base, "failure_codes": ["concrete_policy_approval_missing"]}
@@ -271,12 +287,10 @@ def evaluate(args, now):
     if (isinstance(threshold, bool) or not isinstance(threshold, (float, int)) or
             not math.isfinite(threshold) or not 0 <= threshold <= 1):
         raise QualificationError("invalid_frozen_threshold")
-    targets = policy.get("requirements", {})
-    for key in TARGETS:
-        value = targets.get(key)
-        if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or
-                (not 0 < value <= 1 if key in TARGETS[:2] else not isinstance(value, int) or value < 1)):
-            raise QualificationError("invalid_frozen_requirements")
+    expected_policy, _ = calibrate(args, frozen_start)
+    if any(policy.get(key) != expected_policy[key] for key in
+           ("version", "recognition_min_score", "requirements", "calibration", "selection_rule", "lineage")):
+        return {**base, "failure_codes": ["frozen_policy_values_mismatch"]}
     rows = load_evidence(args.evaluation_results, evaluation)
     scores = metrics(rows, threshold, independent_only=True)
     failures = []
@@ -319,19 +333,15 @@ def calibrate(args, now):
     require_document(requirements, "order_qualification_requirements")
     if not all(nonempty(requirements.get(key)) for key in ("version", "policy_version")):
         raise QualificationError("invalid_requirements")
-    for key in TARGETS:
-        value = requirements.get(key)
-        if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or
-                (not 0 < value <= 1 if key in TARGETS[:2] else not isinstance(value, int) or value < 1)):
-            raise QualificationError("invalid_numerical_requirements")
+    targets = numerical_targets(requirements, "invalid_numerical_requirements")
     rows = load_evidence(args.calibration_results, calibration)
     candidates = []
     for threshold in sorted({row["recognition_min_score"] for row in rows}):
         scores = metrics(rows, threshold)
-        if (scores["qualified_games"] >= requirements["minimum_calibration_qualified_games"] and
+        if (scores["qualified_games"] >= targets["minimum_calibration_qualified_games"] and
                 scores["order_precision"] is not None and
-                scores["order_precision"] >= requirements["minimum_order_precision"] and
-                scores["coverage"] >= requirements["minimum_coverage"]):
+                scores["order_precision"] >= targets["minimum_order_precision"] and
+                scores["coverage"] >= targets["minimum_coverage"]):
             candidates.append((scores["qualified_games"], threshold, scores))
     selected = max(candidates, default=None, key=lambda item: (item[0], item[1]))
     policy = {
@@ -342,7 +352,7 @@ def calibrate(args, now):
         "recognition_version": calibration["recognition_version"],
         "commitment_rule_version": calibration["commitment_rule_version"],
         "recognition_min_score": selected[1] if selected else None,
-        "requirements": {key: requirements[key] for key in TARGETS},
+        "requirements": targets,
         "lineage": {**lineage, "requirements_sha256": requirements_hash,
                     "evaluator_source_sha256": evaluator_hash(), "evaluator_source_hash_encoding": "utf8_lf"},
         "calibration": selected[2] if selected else metrics(rows, None),
@@ -374,10 +384,10 @@ def main():
     calibration = actions.add_parser("calibrate")
     evaluation = actions.add_parser("evaluate")
     for action in (calibration, evaluation):
-        for name in ("calibration-manifest", "evaluation-manifest", "exclusion-registry", "output", "private-root"):
+        for name in ("calibration-manifest", "evaluation-manifest", "exclusion-registry", "calibration-results",
+                     "requirements", "output", "private-root"):
             action.add_argument(f"--{name}", type=Path, required=True)
-    for name in ("calibration-results", "requirements", "policy-output"):
-        calibration.add_argument(f"--{name}", type=Path, required=True)
+    calibration.add_argument("--policy-output", type=Path, required=True)
     for name in ("policy", "evaluation-results"):
         evaluation.add_argument(f"--{name}", type=Path, required=True)
     evaluation.add_argument("--approval", type=Path)

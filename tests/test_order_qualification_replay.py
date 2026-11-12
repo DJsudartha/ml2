@@ -141,10 +141,11 @@ def approval_for(private, policy):
 
 
 def evaluate(inputs, *, approval=None, output_name="evaluation-report.json"):
-    private, exclusions, _, evaluation, manifests, _, policy, _ = inputs
+    private, exclusions, calibration, evaluation, manifests, requirements, policy, _ = inputs
     output = private / output_name
     args = ["evaluate", "--calibration-manifest", manifests[0], "--evaluation-manifest", manifests[1],
-            "--exclusion-registry", exclusions, "--policy", policy, "--evaluation-results", evaluation,
+            "--exclusion-registry", exclusions, "--calibration-results", calibration, "--requirements", requirements,
+            "--policy", policy, "--evaluation-results", evaluation,
             "--output", output, "--private-root", private]
     if approval:
         args.extend(("--approval", approval))
@@ -417,3 +418,43 @@ def test_frozen_policy_rejects_different_evaluator_definitions(tmp_path, field):
     assert run.returncode == 1
     decision = json.loads(output.read_text(encoding="utf-8"))["verification"]
     assert decision["failure_codes"] == ["evaluator_definition_mismatch"]
+
+
+@pytest.mark.parametrize("change", ["threshold", "minimum"])
+def test_new_approval_cannot_authorize_values_outside_the_precommitted_calibration(tmp_path, change):
+    run, inputs = calibrate(tmp_path)
+    assert run.returncode == 0
+    policy = json.loads(inputs[6].read_text(encoding="utf-8"))
+    if change == "threshold":
+        policy["recognition_min_score"] = .7
+    else:
+        policy["requirements"]["minimum_evaluation_games"] = 1
+    write_json(inputs[6], policy)
+    approval = approval_for(inputs[0], inputs[6])
+    inputs[3].write_bytes(b"DO_NOT_OPEN_PRIVATE_EVALUATION")
+    run, output = evaluate(inputs, approval=approval)
+    assert run.returncode == 1
+    decision = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert decision["failure_codes"] == ["frozen_policy_values_mismatch"]
+    assert decision["evaluation_payload_inspected"] is False
+    assert decision["qualification_gate_enabled"] is False
+
+
+@pytest.mark.parametrize("field", ["lineage", "requirements", "calibration"])
+@pytest.mark.parametrize("bad_value", [[], None, "PRIVATE_BAD_SHAPE"])
+def test_malformed_nested_policy_objects_have_safe_structured_rejections(tmp_path, field, bad_value):
+    run, inputs = calibrate(tmp_path)
+    assert run.returncode == 0
+    policy = json.loads(inputs[6].read_text(encoding="utf-8"))
+    policy[field] = bad_value
+    write_json(inputs[6], policy)
+    run, output = evaluate(inputs, approval=approval_for(inputs[0], inputs[6]))
+    assert run.returncode == 1
+    assert output.exists()
+    decision = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert decision["failure_codes"] == ["invalid_policy_object_shape"]
+    assert decision["qualification_gate_enabled"] is False
+    visible = run.stdout + run.stderr + output.read_text(encoding="utf-8")
+    assert "PRIVATE_BAD_SHAPE" not in visible
+    assert str(tmp_path) not in visible
+    assert "Traceback" not in visible

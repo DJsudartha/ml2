@@ -458,3 +458,97 @@ def test_malformed_nested_policy_objects_have_safe_structured_rejections(tmp_pat
     assert "PRIVATE_BAD_SHAPE" not in visible
     assert str(tmp_path) not in visible
     assert "Traceback" not in visible
+
+
+def safe_disabled_decision(run, output, private_fixture):
+    assert run.returncode == 1
+    assert output.exists()
+    visible = run.stdout + run.stderr + output.read_text(encoding="utf-8")
+    assert "Traceback" not in visible
+    assert str(private_fixture) not in visible
+    decision = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert decision["qualification_gate_enabled"] is False
+    return decision
+
+
+@pytest.mark.parametrize("field,code", [
+    ("minimum_order_precision", "invalid_numerical_requirements"),
+    ("minimum_calibration_qualified_games", "no_calibration_threshold_meets_proposed_targets"),
+])
+def test_huge_requirement_integers_do_not_overflow_the_public_calibration(tmp_path, field, code):
+    inputs = setup_inputs(tmp_path)
+    requirements = json.loads(inputs[5].read_text(encoding="utf-8"))
+    requirements[field] = 10 ** 400
+    requirements_hash = write_json(inputs[5], requirements)
+    manifest = json.loads(inputs[4][1].read_text(encoding="utf-8"))
+    manifest["requirements_sha256"] = requirements_hash
+    write_json(inputs[4][1], manifest)
+    run, inputs = calibrate_inputs(inputs)
+    decision = safe_disabled_decision(run, inputs[7], tmp_path)
+    assert decision["failure_codes"] == [code]
+
+
+@pytest.mark.parametrize("partition", ["calibration", "evaluation"])
+def test_huge_recognition_integers_have_safe_public_rejections(tmp_path, partition):
+    inputs = setup_inputs(tmp_path)
+    index = 0 if partition == "calibration" else 1
+    evidence_path, manifest_path = inputs[2 + index], inputs[4][index]
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["games"][0]["recognition_min_score"] = 10 ** 400
+    evidence_hash = write_json(evidence_path, evidence)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["evidence_sha256"] = evidence_hash
+    manifest_hash = write_json(manifest_path, manifest)
+    if partition == "calibration":
+        evaluation_manifest = json.loads(inputs[4][1].read_text(encoding="utf-8"))
+        evaluation_manifest["calibration_manifest_sha256"] = manifest_hash
+        write_json(inputs[4][1], evaluation_manifest)
+    run, inputs = calibrate_inputs(inputs)
+    output = inputs[7]
+    if partition == "evaluation":
+        assert run.returncode == 0
+        run, output = evaluate(inputs, approval=approval_for(inputs[0], inputs[6]))
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == ["invalid_evidence_fields"]
+
+
+@pytest.mark.parametrize("field,code", [("threshold", "invalid_frozen_threshold"),
+                                       ("target", "invalid_frozen_requirements")])
+def test_huge_frozen_policy_numbers_have_safe_public_rejections(tmp_path, field, code):
+    run, inputs = calibrate(tmp_path)
+    assert run.returncode == 0
+    policy = json.loads(inputs[6].read_text(encoding="utf-8"))
+    if field == "threshold":
+        policy["recognition_min_score"] = 10 ** 400
+    else:
+        policy["requirements"]["minimum_order_precision"] = 10 ** 400
+    write_json(inputs[6], policy)
+    run, output = evaluate(inputs, approval=approval_for(inputs[0], inputs[6]))
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == [code]
+
+
+def test_nonfinite_json_exponent_is_rejected_before_missing_approval_reporting(tmp_path):
+    run, inputs = calibrate(tmp_path)
+    assert run.returncode == 0
+    original = inputs[6].read_text(encoding="utf-8")
+    altered = original.replace('"recognition_min_score": 0.8', '"recognition_min_score": 1e400')
+    assert altered != original
+    inputs[6].write_text(altered, encoding="utf-8")
+    run, output = evaluate(inputs)
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == ["invalid_frozen_threshold"]
+
+
+def test_json_integer_beyond_runtime_digit_limit_is_a_safe_input_rejection(tmp_path):
+    inputs = setup_inputs(tmp_path)
+    raw = inputs[5].read_text(encoding="utf-8")
+    altered = raw.replace('"minimum_order_precision": 1.0', '"minimum_order_precision": ' + "9" * 5000)
+    assert altered != raw
+    inputs[5].write_text(altered, encoding="utf-8")
+    manifest = json.loads(inputs[4][1].read_text(encoding="utf-8"))
+    manifest["requirements_sha256"] = hashlib.sha256(inputs[5].read_bytes()).hexdigest()
+    write_json(inputs[4][1], manifest)
+    run, inputs = calibrate_inputs(inputs)
+    decision = safe_disabled_decision(run, inputs[7], tmp_path)
+    assert decision["failure_codes"] == ["input_unavailable_or_invalid_json"]

@@ -57,13 +57,16 @@ def is_hash(value):
 def read_document(path, expected=None):
     try:
         raw = path.read_bytes()
-        if len(raw) > 16 * 1024 * 1024:
-            raise QualificationError("input_too_large")
-        actual = digest(raw)
-        if expected is not None and actual != expected:
-            raise QualificationError("input_integrity_mismatch")
+    except OSError as exc:
+        raise QualificationError("input_unavailable_or_invalid_json") from exc
+    if len(raw) > 16 * 1024 * 1024:
+        raise QualificationError("input_too_large")
+    actual = digest(raw)
+    if expected is not None and actual != expected:
+        raise QualificationError("input_integrity_mismatch")
+    try:
         value = json.loads(raw)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, ValueError, OverflowError) as exc:
         raise QualificationError("input_unavailable_or_invalid_json") from exc
     if not isinstance(value, dict):
         raise QualificationError("invalid_document")
@@ -79,12 +82,18 @@ def nonempty(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def finite_number(value):
+    return not isinstance(value, bool) and (
+        isinstance(value, int) or isinstance(value, float) and math.isfinite(value)
+    )
+
+
 def numerical_targets(value, failure_code):
     if not isinstance(value, dict):
         raise QualificationError(failure_code)
     for key in TARGETS:
         number = value.get(key)
-        if (isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number) or
+        if (not finite_number(number) or
                 (not 0 < number <= 1 if key in TARGETS[:2] else not isinstance(number, int) or number < 1)):
             raise QualificationError(failure_code)
     return {key: value[key] for key in TARGETS}
@@ -180,8 +189,7 @@ def load_evidence(path, manifest):
         raise QualificationError("evidence_membership_mismatch")
     for row in rows:
         score = row.get("recognition_min_score")
-        if (isinstance(score, bool) or not isinstance(score, (float, int)) or
-                not math.isfinite(score) or not 0 <= score <= 1 or
+        if (not finite_number(score) or not 0 <= score <= 1 or
                 row.get("capture_status") not in {"complete", "interrupted", "failed"} or
                 not isinstance(row.get("usable_evidence"), bool) or
                 not isinstance(row.get("identities_complete"), bool) or
@@ -245,6 +253,9 @@ def evaluate(args, now):
     if any(not isinstance(policy.get(key), dict) for key in ("lineage", "requirements", "calibration")):
         raise QualificationError("invalid_policy_object_shape")
     targets = numerical_targets(policy["requirements"], "invalid_frozen_requirements")
+    threshold = policy.get("recognition_min_score")
+    if threshold is not None and (not finite_number(threshold) or not 0 <= threshold <= 1):
+        raise QualificationError("invalid_frozen_threshold")
     if (policy.get("metric_definition_version") != METRIC_VERSION or
             policy["lineage"].get("evaluator_source_sha256") != evaluator_hash()):
         raise QualificationError("evaluator_definition_mismatch")
@@ -281,12 +292,8 @@ def evaluate(args, now):
         raise QualificationError("approval_order_not_established")
     if evaluation.get("untouched") is not True or evaluation.get("results_exposed_before_policy") is not False:
         return {**base, "failure_codes": ["evaluation_not_untouched"]}
-    threshold = policy.get("recognition_min_score")
     if threshold is None:
         return {**base, "failure_codes": ["calibrated_threshold_missing"]}
-    if (isinstance(threshold, bool) or not isinstance(threshold, (float, int)) or
-            not math.isfinite(threshold) or not 0 <= threshold <= 1):
-        raise QualificationError("invalid_frozen_threshold")
     expected_policy, _ = calibrate(args, frozen_start)
     if any(policy.get(key) != expected_policy[key] for key in
            ("version", "recognition_min_score", "requirements", "calibration", "selection_rule", "lineage")):

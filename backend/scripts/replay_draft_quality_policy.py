@@ -60,11 +60,18 @@ def header(payload, kind):
             and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", payload["version"]), "version_invalid")
 
 
-def local_path(root, name):
+def resolve_path(path, *, strict=False):
+    try:
+        return path.resolve(strict=strict)
+    except (OSError, RuntimeError) as exc:
+        raise InvalidInput("path_resolution_failed") from exc
+
+
+def local_path(root, name, *, must_exist=False):
     require(isinstance(name, str) and name and not Path(name).is_absolute(), "unsafe_path")
-    target = (root / name).resolve()
+    target = resolve_path(root / name)
     require(target != root and target.is_relative_to(root), "unsafe_path")
-    return target
+    return resolve_path(target, strict=True) if must_exist else target
 
 
 def read_json(path, expected):
@@ -93,7 +100,7 @@ def read_json(path, expected):
 def read_artifact(root, references, name, checked):
     ref = references[name]
     require(isinstance(ref, dict) and set(ref) == {"path", "sha256"})
-    payload = read_json(local_path(root, ref["path"]), ref["sha256"])
+    payload = read_json(local_path(root, ref["path"], must_exist=True), ref["sha256"])
     checked[name] = ref["sha256"]
     return payload
 
@@ -278,7 +285,7 @@ def evaluate_group(cases, outputs, policy, minimum):
 
 
 def replay(manifest_path, expected):
-    root = manifest_path.resolve().parent
+    root = resolve_path(manifest_path, strict=True).parent
     manifest = read_json(manifest_path, expected)
     header(manifest, "draft_quality_manifest")
     require(type(manifest.get("synthetic")) is bool)
@@ -407,18 +414,23 @@ def main():
     args = parser.parse_args()
     run = {"run_id": str(uuid.uuid4()), "entry_point": "cli_replay",
            "started_at": datetime.now(timezone.utc).isoformat()}
+    manifest_path = None
     try:
-        verification = replay(args.manifest, args.manifest_sha256)
+        manifest_path = resolve_path(args.manifest, strict=True)
+        verification = replay(manifest_path, args.manifest_sha256)
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError, OverflowError, RecursionError) as exc:
         code = str(exc) if isinstance(exc, InvalidInput) else "input_unavailable"
         verification = {"kind": "recommendation_quality_policy_report", "status": "rejected",
                         "release_gate": {"enabled": False, "reasons": [code]},
                         "failure": {"code": code, "action": FAILURE_ACTION}, "activation": "not_attempted"}
+    if manifest_path is None:
+        print(json.dumps({"status": "rejected", "run_id": run["run_id"], "failure": verification["failure"]}))
+        return 1
     encoded = json.dumps(verification, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     report = {"schema_version": 1, "event": "draft_quality_policy_replay", "run": run,
               "verification": verification, "verification_sha256": digest(encoded)}
     try:
-        output = local_path(args.manifest.resolve().parent, args.output)
+        output = local_path(manifest_path.parent, args.output)
         with output.open("x", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n")
     except (OSError, InvalidInput):

@@ -452,3 +452,46 @@ def test_extreme_json_inputs_have_safe_structured_rejections(tmp_path, malformat
     assert "Traceback" not in result.stderr
     assert str(tmp_path) not in json.dumps(report) + result.stdout + result.stderr
     assert str(ROOT) not in json.dumps(report) + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("boundary", ["artifact", "manifest", "output"])
+def test_path_resolution_loops_have_safe_public_rejections(tmp_path, boundary):
+    loop = tmp_path / "synthetic-loop"
+    try:
+        loop.symlink_to(loop.name, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        if sys.platform != "win32":
+            pytest.skip("This filesystem does not support test symlinks")
+        junction = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(loop), str(loop)],
+            capture_output=True, text=True, check=False,
+        )
+        if junction.returncode:
+            pytest.skip("This filesystem does not support test links")
+
+    manifest, _, _, _ = bundle(tmp_path)
+    if boundary == "artifact":
+        manifest["artifacts"]["policy"]["path"] = "synthetic-loop/policy.json"
+    reference = artifact(tmp_path, "manifest.json", manifest)
+    manifest_path = loop / "manifest.json" if boundary == "manifest" else tmp_path / "manifest.json"
+    output = "synthetic-loop/report.json" if boundary == "output" else "report.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "backend.scripts.replay_draft_quality_policy",
+         "--manifest", str(manifest_path), "--manifest-sha256", reference["sha256"], "--output", output],
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 1
+    report_path = tmp_path / "report.json"
+    if boundary == "artifact":
+        assert report_path.exists()
+        rejection = json.loads(report_path.read_text(encoding="utf-8"))["verification"]
+        assert rejection["failure"]["code"] == "path_resolution_failed"
+    else:
+        rejection = json.loads(result.stdout)
+        expected = "path_resolution_failed" if boundary == "manifest" else "report_output_unavailable"
+        assert rejection["failure"]["code"] == expected
+    visible = json.dumps(rejection) + result.stdout + result.stderr
+    assert rejection["status"] == "rejected"
+    assert "Traceback" not in visible
+    assert str(tmp_path) not in visible
+    assert str(ROOT) not in visible

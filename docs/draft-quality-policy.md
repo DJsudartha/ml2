@@ -14,7 +14,9 @@ python -m backend.scripts.replay_draft_quality_policy --manifest private/draft-q
 
 The output is relative to the private manifest directory. Use an existing private
 directory and a new filename. Traversal outside that directory and overwriting an
-existing file are refused. Keep every real artifact and report private and untracked.
+existing file are refused. Path-resolution failures, including link loops, produce safe
+structured rejections without echoing filesystem paths. Keep real artifacts and reports
+private and untracked.
 
 Exit 0 means the command produced a valid report, including an explicitly disabled gate.
 Inspect `verification.release_gate`; command success alone is not policy readiness.

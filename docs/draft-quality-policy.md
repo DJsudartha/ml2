@@ -146,6 +146,8 @@ does not shrink when an output is omitted.
   perfect precision.
 - Options, positions and seven pick batches within one match are correlated. First
   aggregate certified rates within each match, then weight independent matches equally.
+  The primary `certified_precision` field, interval mean and gate all use this same
+  equal-weight match mean; option-slot counts remain descriptive aggregates.
 
 The bootstrap resamples whole matches and preserves candidate/incumbent pairing and all
 within-match positions. The one-sided lower bound is percentile `1-confidence`; the

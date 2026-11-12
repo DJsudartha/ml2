@@ -84,7 +84,10 @@ def read_json(path, expected):
     def reject_constant(_):
         raise InvalidInput("schema_invalid")
 
-    return json.loads(raw.decode("utf-8"), object_pairs_hook=unique, parse_constant=reject_constant)
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique, parse_constant=reject_constant)
+    except RecursionError as exc:
+        raise InvalidInput("json_nesting_exceeded") from exc
 
 
 def read_artifact(root, references, name, checked):
@@ -124,7 +127,10 @@ def validate_policy(policy):
             and 0 <= policy["bootstrap_seed"] <= 2**32 - 1, "policy_invalid")
     for key in ("precision_target", "min_response_coverage", "min_judgment_coverage",
                 "non_regression_margin", "confidence", "max_interval_width"):
-        require(type(policy[key]) in (int, float) and math.isfinite(policy[key]), "policy_invalid")
+        try:
+            require(type(policy[key]) in (int, float) and math.isfinite(policy[key]), "policy_invalid")
+        except OverflowError as exc:
+            raise InvalidInput("policy_invalid") from exc
     require(0 < policy["precision_target"] <= 1 and 0 < policy["min_response_coverage"] <= 1
             and 0 < policy["min_judgment_coverage"] <= 1 and 0 <= policy["non_regression_margin"] < 1
             and 0.5 < policy["confidence"] < 1 and 0 < policy["max_interval_width"] <= 1, "policy_invalid")
@@ -232,14 +238,15 @@ def summarize(rows, policy):
         matches[row["match_id"]][1] += row["expected"]
     scores = {key: value[0] / value[1] for key, value in matches.items()}
     judged = counts["acceptable"] + counts["unacceptable"]
+    precision_interval = interval(list(scores.values()), policy)
     return {
         "case_count": len(rows), "match_count": len(matches), **counts,
         "abstained_cases": len(rows) - counts["responded"],
         "response_coverage": counts["responded"] / len(rows),
         "judgment_coverage": judged / counts["emitted"] if counts["emitted"] else 0.0,
         "judged_precision": counts["acceptable"] / judged if judged else None,
-        "certified_precision": counts["acceptable"] / counts["expected"],
-        "precision_interval": interval(list(scores.values()), policy),
+        "certified_precision": precision_interval["mean"],
+        "precision_interval": precision_interval,
     }, scores
 
 
@@ -289,7 +296,7 @@ def replay(manifest_path, expected):
             "source_evidence_bytes_checked": False, "scope": "recommendation_quality_only",
             "metric_denominators": {
                 "judged_precision": "acceptable_plus_unacceptable_emitted_options",
-                "certified_precision": "frozen_expected_option_slots",
+                "certified_precision": "equal_weight_match_rates_over_frozen_expected_option_slots",
                 "response_coverage": "frozen_benchmark_cases", "judgment_coverage": "all_emitted_options"},
             "statistical_assumptions": {
                 "resampling_unit": "independent_match", "within_match_dependence": "preserved",
@@ -402,7 +409,7 @@ def main():
            "started_at": datetime.now(timezone.utc).isoformat()}
     try:
         verification = replay(args.manifest, args.manifest_sha256)
-    except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError, OverflowError, RecursionError) as exc:
         code = str(exc) if isinstance(exc, InvalidInput) else "input_unavailable"
         verification = {"kind": "recommendation_quality_policy_report", "status": "rejected",
                         "release_gate": {"enabled": False, "reasons": [code]},

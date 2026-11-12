@@ -146,7 +146,8 @@ def test_report_versions_metric_denominators_and_bootstrap_assumptions(tmp_path)
     verification = report["verification"]
     assert verification["metric_version"] == "match_certified_option_precision_v1"
     assert verification["pair_scoring"] == "unordered_exact_option_v1"
-    assert verification["metric_denominators"]["certified_precision"] == "frozen_expected_option_slots"
+    assert verification["metric_denominators"]["certified_precision"] == (
+        "equal_weight_match_rates_over_frozen_expected_option_slots")
     assert verification["metric_denominators"]["judged_precision"] == "acceptable_plus_unacceptable_emitted_options"
     assert verification["statistical_assumptions"]["resampling_unit"] == "independent_match"
     assert verification["statistical_assumptions"]["within_match_dependence"] == "preserved"
@@ -398,3 +399,56 @@ def test_malformed_freeze_metadata_produces_a_safe_rejection_report(tmp_path):
     assert report["verification"]["failure"]["code"] == "freeze_invalid"
     assert "PRIVATE_FREEZE_MARKER" not in json.dumps(report) + result.stdout + result.stderr
     assert "Traceback" not in result.stderr
+
+def test_primary_certified_precision_weights_matches_equally(tmp_path):
+    manifest, policy, benchmark, replay = bundle(tmp_path)
+    template = benchmark["cases"][0]
+    benchmark["cases"] = [
+        {**template, "case_id": f"synthetic-unequal-{i}",
+         "match_id": "synthetic-ten-position-match" if i < 10 else "synthetic-one-position-match"}
+        for i in range(11)
+    ]
+    manifest["selection"] = [{"case_id": case["case_id"], "match_id": case["match_id"]}
+                             for case in benchmark["cases"]]
+    replay["cases"] = [
+        {"case_id": case["case_id"], "candidate": [["Alpha" if i < 10 else "Beta"]],
+         "incumbent": [["Beta"]]}
+        for i, case in enumerate(benchmark["cases"])
+    ]
+    policy.update(min_matches=2, min_matches_per_stratum=2, precision_target=0.75, max_interval_width=1.0)
+    replace_inputs(tmp_path, manifest, policy, benchmark, replay)
+    result, report = run_replay(tmp_path, manifest)
+    assert result.returncode == 0
+    verification = report["verification"]
+    metrics = verification["metrics"]["candidate"]
+    assert metrics["case_count"] == 11
+    assert metrics["match_count"] == 2
+    assert metrics["acceptable"] == 10
+    assert metrics["certified_precision"] == 0.5
+    assert metrics["precision_interval"]["mean"] == metrics["certified_precision"]
+    assert "precision_below_target" in verification["metric_failures"]
+    assert verification["release_gate"]["enabled"] is False
+
+
+@pytest.mark.parametrize("malformation,code", [
+    ("huge_integer", "policy_invalid"),
+    ("deep_json", "json_nesting_exceeded"),
+])
+def test_extreme_json_inputs_have_safe_structured_rejections(tmp_path, malformation, code):
+    manifest, policy, benchmark, replay = bundle(tmp_path)
+    if malformation == "huge_integer":
+        policy["precision_target"] = 10**400
+        replace_inputs(tmp_path, manifest, policy, benchmark, replay)
+    else:
+        raw = ("[" * 20000 + "0" + "]" * 20000).encode("utf-8")
+        (tmp_path / "policy.json").write_bytes(raw)
+        manifest["artifacts"]["policy"]["sha256"] = hashlib.sha256(raw).hexdigest()
+    result, report = run_replay(tmp_path, manifest)
+    assert result.returncode == 1
+    assert report is not None
+    assert report["verification"]["status"] == "rejected"
+    assert report["verification"]["failure"]["code"] == code
+    assert report["verification"]["release_gate"]["enabled"] is False
+    assert "Traceback" not in result.stderr
+    assert str(tmp_path) not in json.dumps(report) + result.stdout + result.stderr
+    assert str(ROOT) not in json.dumps(report) + result.stdout + result.stderr

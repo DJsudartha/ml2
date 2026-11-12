@@ -594,3 +594,16 @@ def test_unrepresentable_day_upper_bound_has_a_safe_public_rejection(tmp_path, s
             run, output = evaluate(inputs, approval=approval)
     decision = safe_disabled_decision(run, output, tmp_path)
     assert decision["failure_codes"] == ["invalid_or_ambiguous_freeze_time"]
+
+
+def test_deeply_nested_json_has_a_safe_public_parser_rejection(tmp_path):
+    inputs = setup_inputs(tmp_path)
+    raw = '{"nested":' + "[" * 5000 + "0" + "]" * 5000 + "}"
+    assert len(raw) < 12000
+    inputs[5].write_text(raw, encoding="utf-8")
+    manifest = json.loads(inputs[4][1].read_text(encoding="utf-8"))
+    manifest["requirements_sha256"] = hashlib.sha256(inputs[5].read_bytes()).hexdigest()
+    write_json(inputs[4][1], manifest)
+    run, inputs = calibrate_inputs(inputs)
+    decision = safe_disabled_decision(run, inputs[7], tmp_path)
+    assert decision["failure_codes"] == ["input_unavailable_or_invalid_json"]

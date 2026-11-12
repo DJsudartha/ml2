@@ -66,7 +66,7 @@ def read_document(path, expected=None):
         raise QualificationError("input_integrity_mismatch")
     try:
         value = json.loads(raw)
-    except (UnicodeError, ValueError, OverflowError) as exc:
+    except (UnicodeError, ValueError, OverflowError, RecursionError) as exc:
         raise QualificationError("input_unavailable_or_invalid_json") from exc
     if not isinstance(value, dict):
         raise QualificationError("invalid_document")

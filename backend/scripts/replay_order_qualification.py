@@ -108,7 +108,7 @@ def date_bounds(value):
         if point.tzinfo is None:
             raise ValueError
         return point, point
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise QualificationError("invalid_or_ambiguous_freeze_time") from exc
 
 

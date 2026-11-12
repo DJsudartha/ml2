@@ -564,3 +564,33 @@ def test_nonfinite_policy_version_is_rejected_before_missing_approval_report_ser
     run, output = evaluate(inputs)
     decision = safe_disabled_decision(run, output, tmp_path)
     assert decision["failure_codes"] == ["invalid_policy_version"]
+
+
+@pytest.mark.parametrize("surface", ["manifest", "policy", "approval"])
+def test_unrepresentable_day_upper_bound_has_a_safe_public_rejection(tmp_path, surface):
+    if surface == "manifest":
+        inputs = setup_inputs(tmp_path)
+        manifest = json.loads(inputs[4][0].read_text(encoding="utf-8"))
+        manifest["frozen_at"] = "9999-12-31"
+        manifest_hash = write_json(inputs[4][0], manifest)
+        evaluation_manifest = json.loads(inputs[4][1].read_text(encoding="utf-8"))
+        evaluation_manifest["calibration_manifest_sha256"] = manifest_hash
+        write_json(inputs[4][1], evaluation_manifest)
+        run, inputs = calibrate_inputs(inputs)
+        output = inputs[7]
+    else:
+        run, inputs = calibrate(tmp_path)
+        assert run.returncode == 0
+        if surface == "policy":
+            policy = json.loads(inputs[6].read_text(encoding="utf-8"))
+            policy["frozen_at"] = "9999-12-31"
+            write_json(inputs[6], policy)
+            run, output = evaluate(inputs)
+        else:
+            approval = approval_for(inputs[0], inputs[6])
+            record = json.loads(approval.read_text(encoding="utf-8"))
+            record["approved_at"] = "9999-12-31"
+            write_json(approval, record)
+            run, output = evaluate(inputs, approval=approval)
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == ["invalid_or_ambiguous_freeze_time"]

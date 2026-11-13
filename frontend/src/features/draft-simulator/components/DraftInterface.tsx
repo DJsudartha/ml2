@@ -1,13 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { HeroGrid } from "./HeroGrid";
-import type { Hero, Recommendation } from "../types/draft.ts";
+import type {
+  Hero,
+  RecommendationResponse,
+  RecommendationRequest,
+} from "../types/draft.ts";
+import { API_BASE, fetchBanRecommendations, fetchPickRecommendations, isRetryableDraftError, prewarmBackend, shouldPrewarmBackend } from "../api.ts";
 import { draftOrder } from "../data/draftOrder";
 import { heroes } from "../data/heroes";
 import { TIME_PER_ACTION, SLOT_COUNT } from "../constants/draft.ts";
 import { BanSlotsRow } from "./BanSlotsRow.tsx";
 import { DraftHeader } from "./DraftHeader.tsx";
 import { DraftControls } from "./DraftControls.tsx";
-import RecommendationBox  from "./RecommendationBox.tsx"
+import { RecommendationBox } from "./RecommendationBox.tsx";
 import { PickSlotsColumn } from "./PickSlotsColumn.tsx";
 
 export function DraftInterface() {
@@ -19,8 +24,16 @@ export function DraftInterface() {
   const [redPicks, setRedPicks] = useState<Hero[]>([]);
   const [stepSelectionsCount, setStepSelectionsCount] = useState(0);
   const [hasDraftStarted, setHasDraftStarted] = useState(false);
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  
+  const [recommendationResult, setRecommendationResult] = useState<{
+    key: string;
+    data?: RecommendationResponse;
+    error?: string;
+    canRetry?: boolean;
+  } | null>(null);
+  const [backendState, setBackendState] = useState<"unchecked" | "connecting" | "reachable" | "ready" | "unavailable">(
+    shouldPrewarmBackend() ? "connecting" : "unchecked",
+  );
+  const [retryNonce, setRetryNonce] = useState(0);
 
   const [bannedHeroIds, setBannedHeroIds] = useState<
     Set<number>
@@ -36,6 +49,29 @@ export function DraftInterface() {
       : null;
   const currentTeam = currentStep ? currentStep.team : null;
   const currentAction = currentStep ? currentStep.action : "complete";
+  const requestKey = JSON.stringify([
+    hasDraftStarted, currentDraftIndex, bluePicks, redPicks, blueBans, redBans,
+  ]);
+  const activeResult = recommendationResult?.key === requestKey ? recommendationResult : null;
+  const recommendations = activeResult?.data?.recommendations ?? [];
+  const recommendationError = activeResult?.error ?? null;
+  const recommendationStatus = activeResult?.data ? "ready" :
+    activeResult?.error ? "unavailable" :
+      backendState === "reachable" || backendState === "ready" ? "processing" : "connecting";
+
+  useEffect(() => {
+    if (!shouldPrewarmBackend()) return;
+    const controller = new AbortController();
+    prewarmBackend(controller.signal).then(
+      () => setBackendState((current) => current === "connecting" ? "reachable" : current),
+      () => {
+        if (!controller.signal.aborted) {
+          setBackendState((current) => current === "connecting" ? "unavailable" : current);
+        }
+      },
+    );
+    return () => controller.abort();
+  }, []);
 
   const getRandomAvailableHero = useCallback(() => {
   const availableHeroes = heroes.filter(
@@ -75,6 +111,7 @@ const applyHeroSelection = useCallback((hero: Hero, currentIndex: number) => {
   }
 
   if (!selectionApplied) return;
+  setTimeRemaining(TIME_PER_ACTION);
 
   const nextSelectionsMade = stepSelectionsCount + 1;
   const isStepComplete = nextSelectionsMade >= current.count;
@@ -115,7 +152,15 @@ const handleResetDraft = () => {
   setStepSelectionsCount(0);
   setTimeRemaining(TIME_PER_ACTION);
   setHasDraftStarted(false);
+  setRecommendationResult(null);
+  setRetryNonce(0);
 }
+
+const handleRetryRecommendations = () => {
+  setRecommendationResult(null);
+  setBackendState("connecting");
+  setRetryNonce((value) => value + 1);
+};
 
   const blueBanActiveIndex =
     currentAction === "ban" && currentTeam === "blue" ? blueBans.length : -1;
@@ -135,7 +180,7 @@ useEffect(() => {
 }, [currentDraftIndex, hasDraftStarted]);
 
 useEffect(() => {
-  if (timeRemaining !== 0) return;
+  if (!hasDraftStarted || timeRemaining !== 0) return;
   if (currentDraftIndex >= draftOrder.length) return;
 
   const id = setTimeout(() => {
@@ -153,13 +198,13 @@ useEffect(() => {
   }, 0);
 
   return () => clearTimeout(id);
-}, [timeRemaining, currentDraftIndex, getRandomAvailableHero, applyHeroSelection]);
+}, [timeRemaining, currentDraftIndex, hasDraftStarted, getRandomAvailableHero, applyHeroSelection]);
 
 useEffect(() => {
   if (!hasDraftStarted) return;
   if (!currentStep) return;
 
-  const payload = {
+  const payload: RecommendationRequest = {
     team: currentStep.team,
     blue_picks: bluePicks.map((h) => h.name),
     red_picks: redPicks.map((h) => h.name),
@@ -170,51 +215,36 @@ useEffect(() => {
     rerank_pool_size: null,
   };
 
-  console.log("Sending recommendation payload:", payload);
-
-  let cancelled = false;
+  const controller = new AbortController();
 
   async function fetchData() {
     try {
       if (!currentStep) return;
-      const endpoint =
+      const requestAdvice =
         currentStep.action === "ban"
-          ? "/advise-bans"
-          : "/advise-picks";
-
-      console.log("Posting to endpoint:", endpoint);
-
-      const res = await fetch(`https://ml-2-8lkf.onrender.com/draft${endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+          ? fetchBanRecommendations
+          : fetchPickRecommendations;
+      const data = await requestAdvice(payload, controller.signal, () => {
+        if (!controller.signal.aborted) setBackendState("connecting");
       });
-
-
-      const data = await res.json();
-
-      if (!cancelled) {
-        const recs = Array.isArray(data.recommendation.recommendations) 
-                    ? data.recommendation.recommendations 
-                    : [];
-        setRecommendations(recs);
-      }
+      if (controller.signal.aborted) return;
+      setBackendState("ready");
+      setRecommendationResult({ key: requestKey, data });
     } catch (err) {
-      console.error("Recommendation error:", err);
-      if (!cancelled) {
-        setRecommendations([]);
-      }
+      if (controller.signal.aborted) return;
+      setBackendState("unavailable");
+      setRecommendationResult({
+        key: requestKey,
+        error: `Recommendations unavailable from ${API_BASE}. ${err instanceof Error ? err.message : "Request failed."}`,
+        canRetry: isRetryableDraftError(err),
+      });
     }
   }
 
   fetchData();
 
-  return () => {
-    cancelled = true;
-  };
-}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted]);
+  return () => controller.abort();
+}, [bluePicks, redPicks, blueBans, redBans, currentStep, hasDraftStarted, requestKey, retryNonce]);
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col overflow-hidden">
@@ -234,6 +264,9 @@ useEffect(() => {
             currentTeam={currentTeam}
             timeRemaining={timeRemaining}
             hasDraftStarted={hasDraftStarted}
+            phase={currentStep?.phase}
+            batch={currentStep?.batch}
+            remaining={currentStep ? currentStep.count - stepSelectionsCount : 0}
           />
 
           <div className="w-[360px] flex justify-end items-center gap-2">
@@ -270,6 +303,12 @@ useEffect(() => {
         team="blue"
         recommendations={recommendations}
         visible={hasDraftStarted && currentTeam === "blue"}
+        status={recommendationStatus}
+        error={recommendationError}
+        canRetry={activeResult?.canRetry ?? false}
+        onRetry={handleRetryRecommendations}
+        limitation={activeResult?.data?.training_context?.limitation}
+        isDoublePick={currentStep?.count === 2}
       />
     </div>
 
@@ -290,6 +329,12 @@ useEffect(() => {
         team="red"
         recommendations={recommendations}
         visible={hasDraftStarted && currentTeam === "red"}
+        status={recommendationStatus}
+        error={recommendationError}
+        canRetry={activeResult?.canRetry ?? false}
+        onRetry={handleRetryRecommendations}
+        limitation={activeResult?.data?.training_context?.limitation}
+        isDoublePick={currentStep?.count === 2}
       />
     </div>
 

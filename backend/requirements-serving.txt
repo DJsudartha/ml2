@@ -1,0 +1,14 @@
+# FastAPI serving closure for backend.main:app and all four draft endpoints.
+# Keep versions aligned with backend/requirements.txt. Training/refresh installs
+# continue to use that broader manifest.
+fastapi==0.135.2
+uvicorn==0.42.0
+pydantic==2.12.5
+numpy==2.1.0
+pandas==3.0.2
+scikit-learn==1.8.0
+# Same xgboost module/version required by the legacy simulation import;
+# GPU algorithms and federated learning are not used by this CPU service.
+xgboost-cpu==3.2.0
+# sentence-transformers is optional in both advisors; Docker uses their default
+# TF-IDF backend. HTTP/data-refresh clients are outside this serving import graph.

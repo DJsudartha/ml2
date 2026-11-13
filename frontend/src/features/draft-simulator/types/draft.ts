@@ -24,6 +24,8 @@ export interface DraftStep {
   phase: DraftPhase;
   team: Team;
   action: DraftAction;
+  count: number;
+  batch?: "B1" | "R1/R2" | "B2/B3" | "R3" | "R4" | "B4/B5" | "R5";
 }
 
 export interface RecommendationRequest {
@@ -39,13 +41,34 @@ export interface RecommendationRequest {
 
 export interface Recommendation {
   hero: string;
+  rank: number;
   score: number;
   reasons: string[];
-  rank: string;
+  score_components?: Record<string, number>;
 }
 
 export interface RecommendationResponse {
-  team: "blue" | "red";
+  team: Team;
   recommendations: Recommendation[];
-  reasoning: string,
+  reasoning?: string;
+  training_context?: PickTrainingContext;
+}
+
+export interface PickTrainingContext {
+  target: "order-agnostic-pick-fit" | "confirmed-ordered-pick";
+  uses_confirmed_pick_order: boolean;
+  limitation: string | null;
+}
+
+export interface AdvisorResponse {
+  uses_llm: boolean;
+  provider: string;
+  model: string;
+  advice: string;
+  retrieved_principles: unknown[];
+}
+
+export interface AdviceResponse {
+  recommendation: RecommendationResponse;
+  advisor: AdvisorResponse;
 }

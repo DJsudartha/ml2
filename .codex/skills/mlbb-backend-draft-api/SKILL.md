@@ -16,7 +16,7 @@ Read the repo-root `AGENTS.md` first.
 
 ## Guardrails
 
-- Treat `backend/app/main.py` and `backend/models/draft_model.py` as legacy or stale unless the task explicitly targets them.
+- Treat `backend/models/draft_model.py` as legacy or stale unless the task explicitly targets it.
 - `backend/api/draft.py` currently owns the active request model for draft routes.
 - Preserve the `/draft` route prefix and existing endpoint names unless the task explicitly includes an API break.
 - Call out contract changes clearly because the frontend posts directly to these routes.

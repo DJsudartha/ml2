@@ -1,28 +1,48 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.draft import router as draft_router
+from backend.api.draft import router as draft_router
 
-app = FastAPI()
+app = FastAPI(title="MLBB Draft API")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",   # Vite dev
         "http://127.0.0.1:5173",
-        "https://djsudartha.github.io"
+        "https://djsudartha.github.io",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(draft_router, prefix= "/draft")
+app.include_router(draft_router, prefix="/draft")
+
 
 @app.get("/")
 def root():
     return {"message": "MLBB Draft Backend Running"}
 
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/draft")
-def idk():
-    pass    
+def draft_routes():
+    return {
+        "endpoints": [
+            "/draft/recommend-bans",
+            "/draft/advise-bans",
+            "/draft/recommend-picks",
+            "/draft/advise-picks",
+        ]
+    }
+
+
+@app.exception_handler(ValueError)
+def invalid_draft_state(request: Request, exc: ValueError):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})

@@ -1,3 +1,4 @@
+import type { DraftStep } from "../types/draft";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type Props = {
@@ -5,6 +6,9 @@ type Props = {
   currentTeam: "blue" | "red" | null;
   timeRemaining: number;
   hasDraftStarted: boolean;
+  phase?: DraftStep["phase"];
+  batch?: DraftStep["batch"];
+  remaining?: number;
 };
 
 export function DraftHeader({
@@ -12,6 +16,9 @@ export function DraftHeader({
   currentTeam,
   timeRemaining,
   hasDraftStarted,
+  phase,
+  batch,
+  remaining,
 }: Props) {
   const centerLabel =
     currentAction === "ban"
@@ -24,6 +31,10 @@ export function DraftHeader({
     <div className="flex flex-col items-center justify-center">
       <div className="text-xl font-bold leading-none">{centerLabel}</div>
 
+      {phase && <div className="text-xs text-gray-300" aria-label="Draft phase">
+        {currentTeam === "blue" ? "Blue" : "Red"} / {batch ?? (phase === "ban1" ? "Ban phase 1" : "Ban phase 2")}
+        {batch && ` / ${remaining} remaining`}
+      </div>}
       {currentAction === "complete" ? (
         <div className="text-green-400 text-sm font-semibold mt-1">
           Complete

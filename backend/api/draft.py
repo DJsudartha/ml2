@@ -1,34 +1,30 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
+from typing import Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
 
 class DraftStateRequest(BaseModel):
-    team: str
-    blue_picks: list[str] = []
-    red_picks: list[str] = []
-    blue_bans: list[str] = []
-    red_bans: list[str] = []
-    top_k: int = 3
+    team: Literal["blue", "red"]
+    blue_picks: list[str] = Field(default_factory=list)
+    red_picks: list[str] = Field(default_factory=list)
+    blue_bans: list[str] = Field(default_factory=list)
+    red_bans: list[str] = Field(default_factory=list)
+    top_k: int = Field(default=3, ge=1, le=20)
     strict_turn: bool = True
-    rerank_pool_size: int | None = None
+    rerank_pool_size: int | None = Field(default=None, ge=1)
 
 
 @router.post("/recommend-bans")
 def recommend_bans_route(request: DraftStateRequest):
     from backend.services.modeling.advisor_pipeline import (
-    recommend_bans,
-)
+        recommend_bans,
+    )
+
     return recommend_bans(
         team=request.team,
         blue_picks=request.blue_picks,
@@ -43,9 +39,8 @@ def recommend_bans_route(request: DraftStateRequest):
 
 @router.post("/advise-bans")
 def advise_bans_route(request: DraftStateRequest):
-    from backend.services.modeling.advisor_pipeline import (
-    advise_bans
-)
+    from backend.services.modeling.advisor_pipeline import advise_bans
+
     return advise_bans(
         team=request.team,
         blue_picks=request.blue_picks,
@@ -61,8 +56,9 @@ def advise_bans_route(request: DraftStateRequest):
 @router.post("/recommend-picks")
 def recommend_picks_route(request: DraftStateRequest):
     from backend.services.modeling.advisor_pipeline import (
-    recommend_picks,
-)
+        recommend_picks,
+    )
+
     return recommend_picks(
         team=request.team,
         blue_picks=request.blue_picks,
@@ -77,9 +73,8 @@ def recommend_picks_route(request: DraftStateRequest):
 
 @router.post("/advise-picks")
 def advise_picks_route(request: DraftStateRequest):
-    from backend.services.modeling.advisor_pipeline import (
-    advise_picks
-)
+    from backend.services.modeling.advisor_pipeline import advise_picks
+
     return advise_picks(
         team=request.team,
         blue_picks=request.blue_picks,

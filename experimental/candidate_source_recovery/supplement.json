@@ -1,0 +1,353 @@
+{
+  "schema_version": 1,
+  "kind": "provisional_candidate_source_supplement",
+  "production_approved": false,
+  "training_approved": false,
+  "human_review_performed": false,
+  "importer_ready": false,
+  "previous_readiness_sha256": "62d018ca9a5f21739cfccd34299d49d18dd5d2ae1ce5438ad687f5d6ab013b08",
+  "games": [
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series59::game1::2",
+      "match_id": "MPLIDS18W5_0004",
+      "game_no": 2,
+      "date": "2026-09-12 13:00:00",
+      "patch": "2.1.95",
+      "teams": {
+        "red": "Natus Vincere",
+        "blue": "EVOS"
+      },
+      "rosters": {
+        "red": [
+          "Dyrroth",
+          "Gatotkaca",
+          "Obsidia",
+          "Paquito",
+          "Selena"
+        ],
+        "blue": [
+          "Carmilla",
+          "Cecilion",
+          "Esmeralda",
+          "Hirara",
+          "Moskov"
+        ]
+      },
+      "bans": {
+        "red": [
+          {
+            "position": 1,
+            "hero": "Freya",
+            "source_field": "team1ban1"
+          },
+          {
+            "position": 2,
+            "hero": "Melissa",
+            "source_field": "team1ban2"
+          },
+          {
+            "position": 3,
+            "hero": "Gloo",
+            "source_field": "team1ban3"
+          },
+          {
+            "position": 4,
+            "hero": "Barats",
+            "source_field": "team1ban4"
+          },
+          {
+            "position": 5,
+            "hero": "Miya",
+            "source_field": "team1ban5"
+          }
+        ],
+        "blue": [
+          {
+            "position": 1,
+            "hero": "Belerick",
+            "source_field": "team2ban1"
+          },
+          {
+            "position": 2,
+            "hero": "Atlas",
+            "source_field": "team2ban2"
+          },
+          {
+            "position": 3,
+            "hero": "Marcel",
+            "source_field": "team2ban3"
+          },
+          {
+            "position": 4,
+            "hero": "Uranus",
+            "source_field": "team2ban4"
+          },
+          {
+            "position": 5,
+            "hero": "Minotaur",
+            "source_field": "team2ban5"
+          }
+        ]
+      },
+      "source_game_file": "MPLIDS18W5_0004_G2.json",
+      "candidate_baseline": {
+        "readiness_pointer": "/games/4",
+        "teams": {
+          "blue": "EVOS",
+          "red": "Natus Vincere"
+        },
+        "known_heroes": {
+          "blue": [
+            "Esmeralda",
+            "Hirara",
+            "Cecilion",
+            "Moskov",
+            "Carmilla"
+          ],
+          "red": [
+            "Dyrroth",
+            "Paquito",
+            "Selena",
+            "Obsidia",
+            "Gatotkaca"
+          ]
+        }
+      },
+      "review_status": "unreviewed_proposal",
+      "unknown_fields": [
+        "actual_start_timestamp",
+        "source_timezone",
+        "independently_confirmed_tournament_server_patch",
+        "historical_hero_eligibility"
+      ]
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series68::game1::1",
+      "match_id": "MPLIDS18W6_0003",
+      "game_no": 1,
+      "date": "2026-09-18 13:15:00",
+      "patch": "2.1.95",
+      "teams": {
+        "red": "RRQ Hoshi",
+        "blue": "Dewa United Esports"
+      },
+      "rosters": {
+        "red": [
+          "Belerick",
+          "Bruno",
+          "Hirara",
+          "Selena",
+          "Sora"
+        ],
+        "blue": [
+          "Aulus",
+          "Carmilla",
+          "Obsidia",
+          "Paquito",
+          "Zhuxin"
+        ]
+      },
+      "bans": {
+        "red": [
+          {
+            "position": 1,
+            "hero": "Freya",
+            "source_field": "team1ban1"
+          },
+          {
+            "position": 2,
+            "hero": "Arlott",
+            "source_field": "team1ban2"
+          },
+          {
+            "position": 3,
+            "hero": "Yi Sun-shin",
+            "source_field": "team1ban3"
+          },
+          {
+            "position": 4,
+            "hero": "Rafaela",
+            "source_field": "team1ban4"
+          },
+          {
+            "position": 5,
+            "hero": "Marcel",
+            "source_field": "team1ban5"
+          }
+        ],
+        "blue": [
+          {
+            "position": 1,
+            "hero": "Fanny",
+            "source_field": "team2ban1"
+          },
+          {
+            "position": 2,
+            "hero": "Atlas",
+            "source_field": "team2ban2"
+          },
+          {
+            "position": 3,
+            "hero": "Minotaur",
+            "source_field": "team2ban3"
+          },
+          {
+            "position": 4,
+            "hero": "Esmeralda",
+            "source_field": "team2ban4"
+          },
+          {
+            "position": 5,
+            "hero": "Gatotkaca",
+            "source_field": "team2ban5"
+          }
+        ]
+      },
+      "source_game_file": "MPLIDS18W6_0003_G1.json",
+      "candidate_baseline": {
+        "readiness_pointer": "/games/5",
+        "teams": {
+          "blue": "Dewa United Esports",
+          "red": "RRQ Hoshi"
+        },
+        "known_heroes": {
+          "blue": [
+            "Aulus",
+            "Paquito",
+            "Zhuxin",
+            "Obsidia",
+            "Carmilla"
+          ],
+          "red": [
+            "Sora",
+            "Hirara",
+            "Selena",
+            "Bruno",
+            "Belerick"
+          ]
+        }
+      },
+      "review_status": "unreviewed_proposal",
+      "unknown_fields": [
+        "actual_start_timestamp",
+        "source_timezone",
+        "independently_confirmed_tournament_server_patch",
+        "historical_hero_eligibility"
+      ]
+    },
+    {
+      "game_id": "MPL_Indonesia_Season_18_Regular_Season_games.json::series82::game1::1",
+      "match_id": "MPLIDS18W7_0003",
+      "game_no": 1,
+      "date": "2026-10-03 07:00:00",
+      "patch": "2.1.95",
+      "teams": {
+        "blue": "Alter Ego",
+        "red": "Natus Vincere"
+      },
+      "rosters": {
+        "blue": [
+          "Arlott",
+          "Atlas",
+          "Harith",
+          "Hirara",
+          "Selena"
+        ],
+        "red": [
+          "Minotaur",
+          "Miya",
+          "Nolan",
+          "Phoveus",
+          "Valentina"
+        ]
+      },
+      "bans": {
+        "blue": [
+          {
+            "position": 1,
+            "hero": "Paquito",
+            "source_field": "team1ban1"
+          },
+          {
+            "position": 2,
+            "hero": "Aulus",
+            "source_field": "team1ban2"
+          },
+          {
+            "position": 3,
+            "hero": "Masha",
+            "source_field": "team1ban3"
+          },
+          {
+            "position": 4,
+            "hero": "Marcel",
+            "source_field": "team1ban4"
+          },
+          {
+            "position": 5,
+            "hero": "Gloo",
+            "source_field": "team1ban5"
+          }
+        ],
+        "red": [
+          {
+            "position": 1,
+            "hero": "Carmilla",
+            "source_field": "team2ban1"
+          },
+          {
+            "position": 2,
+            "hero": "Freya",
+            "source_field": "team2ban2"
+          },
+          {
+            "position": 3,
+            "hero": "Uranus",
+            "source_field": "team2ban3"
+          },
+          {
+            "position": 4,
+            "hero": "Badang",
+            "source_field": "team2ban4"
+          },
+          {
+            "position": 5,
+            "hero": "Alice",
+            "source_field": "team2ban5"
+          }
+        ]
+      },
+      "source_game_file": "MPLIDS18W7_0003_G1.json",
+      "candidate_baseline": {
+        "readiness_pointer": "/games/6",
+        "teams": {
+          "blue": "Alter Ego",
+          "red": "Natus Vincere"
+        },
+        "known_heroes": {
+          "blue": [
+            "Arlott",
+            "Hirara",
+            "Selena",
+            "Harith",
+            "Atlas"
+          ],
+          "red": [
+            "Phoveus",
+            "Nolan",
+            "Valentina",
+            "Miya",
+            "Minotaur"
+          ]
+        }
+      },
+      "review_status": "unreviewed_proposal",
+      "unknown_fields": [
+        "actual_start_timestamp",
+        "source_timezone",
+        "independently_confirmed_tournament_server_patch",
+        "historical_hero_eligibility"
+      ]
+    }
+  ]
+}

@@ -4,11 +4,11 @@ from typing import Any
 
 from backend.services.llm.ban_advisor import build_ban_advice
 from backend.services.llm.pick_advisor import build_pick_advice
-from backend.services.modeling.ban_recommender import (
-    recommend_next_bans,
-    simulate_ban_sequence,
+from backend.services.modeling.ban_recommender import simulate_ban_sequence
+from backend.services.modeling.contextual_mvp import (
+    recommend_bans as recommend_next_bans,
+    recommend_picks as recommend_next_picks,
 )
-from backend.services.modeling.pick_recommender import recommend_next_picks
 
 
 def recommend_bans(

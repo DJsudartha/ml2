@@ -19,7 +19,7 @@ try:
 except ImportError:
     SentenceTransformer = None
 
-DEFAULT_LOCAL_BACKEND = "auto"
+DEFAULT_LOCAL_BACKEND = "tfidf"
 DEFAULT_LOCAL_EMBEDDINGS_MODEL = "all-MiniLM-L6-v2"
 DEFAULT_TOP_PRINCIPLES = 3
 

@@ -49,6 +49,9 @@ def test_recommend_next_picks_excludes_unavailable_heroes():
     assert recommendation["order_profile"]["id"] == "bridge"
     assert recommendation["base_model_source"]
     assert recommendation["base_model_name"]
+    assert recommendation["training_context"]["target"] == "order-agnostic-pick-fit"
+    assert recommendation["training_context"]["uses_confirmed_pick_order"] is False
+    assert recommendation["training_context"]["limitation"]
 
 
 def test_recommend_next_picks_uses_opener_profile_on_first_pick():
@@ -73,12 +76,13 @@ def test_recommend_next_picks_exposes_context_components_with_revealed_draft():
         red_bans=FIRST_PHASE_RED_BANS,
         team="blue",
         top_k=2,
+        rerank_pool_size=2,
     )
 
     first_item = recommendation["recommendations"][0]
     score_components = first_item["score_components"]
 
-    assert recommendation["rerank_pool_size"] >= 2
+    assert recommendation["rerank_pool_size"] == 2
     assert "prior_score" in score_components
     assert "order_adjustment" in score_components
     assert "context_peak" in score_components

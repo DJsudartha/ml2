@@ -1,32 +1,32 @@
 import cv2
-import json
+from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from backend.services.data.vod_layouts import (  # noqa: E402
+    LAYOUTS_PATH,
+    detect_active_video_bounds,
+    load_layout,
+    slot_bounds_for_frame,
+)
 
 FRAME_PATH = "backend/data/raw/frames/m7/frame_00001.jpg"
-LAYOUT_PATH = "backend/data/layouts.json"
 TOURNAMENT_ID = "M7_World"
 
-# Load layout
-with open(LAYOUT_PATH) as f:
-    layouts = json.load(f)
-
-layout = layouts[TOURNAMENT_ID]
-slots = layout["slots"]
+layout = load_layout(TOURNAMENT_ID, LAYOUTS_PATH)
 
 # Load frame
 img = cv2.imread(FRAME_PATH)
-h, w = img.shape[:2]
-
-# Scale if resolution differs
-ref_w, ref_h = layout["resolution"]
-scale_x, scale_y = w / ref_w, h / ref_h
 
 # Draw each slot
-for name, (x, y, sw, sh) in slots.items():
-    x = int(x * scale_x)
-    y = int(y * scale_y)
-    sw = int(sw * scale_x)
-    sh = int(sh * scale_y)
-
+for name, (x, y, sw, sh) in slot_bounds_for_frame(
+    layout,
+    img.shape,
+    active_bounds=detect_active_video_bounds(img),
+).items():
     color = (0, 200, 0) if "blue" in name else (0, 0, 200)  # green=blue team, red=red team
     cv2.rectangle(img, (x, y), (x + sw, y + sh), color, 1)
     cv2.putText(img, name, (x, y - 4),

@@ -1,0 +1,13 @@
+{
+  "name": "ml2-development",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "npm --prefix frontend run test",
+    "test:backend": "node scripts/run-python-module.mjs pytest -q",
+    "test:tools": "node --test scripts/run-python-module.test.mjs",
+    "check:frontend": "npm --prefix frontend run lint && npm --prefix frontend run typecheck && npm --prefix frontend run test:deploy && npm run test:frontend && npm --prefix frontend run build",
+    "check:backend": "npm run test:backend && node scripts/run-python-module.mjs ruff check backend tests .github/scripts",
+    "check": "npm run test:tools && npm run check:frontend && npm run check:backend"
+  }
+}

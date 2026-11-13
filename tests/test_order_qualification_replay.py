@@ -598,12 +598,20 @@ def test_unrepresentable_day_upper_bound_has_a_safe_public_rejection(tmp_path, s
 
 def test_deeply_nested_json_has_a_safe_public_parser_rejection(tmp_path):
     inputs = setup_inputs(tmp_path)
-    raw = '{"nested":' + "[" * 5000 + "0" + "]" * 5000 + "}"
+    payload_marker = "PRIVATE_NESTED_JSON_MARKER"
+    # The trailing comma forces malformed JSON even when the parser accepts this nesting depth.
+    raw = '{"nested":' + "[" * 5000 + json.dumps(payload_marker) + "]" * 5000 + ",}"
     assert len(raw) < 12000
     inputs[5].write_text(raw, encoding="utf-8")
     manifest = json.loads(inputs[4][1].read_text(encoding="utf-8"))
     manifest["requirements_sha256"] = hashlib.sha256(inputs[5].read_bytes()).hexdigest()
     write_json(inputs[4][1], manifest)
+    frozen_paths = (inputs[1], inputs[2], inputs[3], *inputs[4], inputs[5])
+    before = {path: path.read_bytes() for path in frozen_paths}
     run, inputs = calibrate_inputs(inputs)
     decision = safe_disabled_decision(run, inputs[7], tmp_path)
     assert decision["failure_codes"] == ["input_unavailable_or_invalid_json"]
+    assert decision["automatic_acceptance_performed"] is False
+    assert not inputs[6].exists()
+    assert all(path.read_bytes() == content for path, content in before.items())
+    assert payload_marker not in run.stdout + run.stderr + inputs[7].read_text(encoding="utf-8")

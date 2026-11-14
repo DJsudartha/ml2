@@ -55,6 +55,8 @@ The charter kind is `organized_draft_expert_charter`:
 | `effective_disables_source` | Source-record binding for disables and their effective scope |
 | `expert_signoff_record` | Explicit expert sign-off record binding; its presence is not approval verification |
 
+Patch, ruleset and source/sign-off record IDs must contain a non-whitespace character;
+presence checks do not normalize or rewrite the supplied declarations.
 Each source/sign-off binding contains exactly an opaque `record_id` and a SHA-256.
 These are references only and are never opened, fetched, or treated as authenticated
 signatures. The charter bytes are checked; the referenced evidence bytes are not.

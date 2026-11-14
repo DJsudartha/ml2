@@ -138,6 +138,30 @@ def test_scenario_preflight_requires_expert_signoff_binding_without_echoing_char
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.parametrize("field", [
+    "patch", "ruleset", "eligibility_source", "effective_disables_source", "expert_signoff_record",
+])
+@pytest.mark.parametrize("blank", ["   ", "\u00a0"])
+def test_scenario_preflight_rejects_blank_required_declarations(tmp_path, field, blank):
+    manifest, charter, scenarios = scenario_bundle(tmp_path)
+    if field in ("patch", "ruleset"):
+        charter[field] = blank
+        code = "charter_invalid"
+    else:
+        charter[field] = {"record_id": blank, "sha256": "1" * 64}
+        code = "evidence_binding_missing"
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(tmp_path, "scenarios.json", scenarios)
+    before = (tmp_path / "charter.json").read_bytes()
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == code
+    assert report["verification"]["release_gate"]["enabled"] is False
+    assert (tmp_path / "charter.json").read_bytes() == before
+    assert "Traceback" not in result.stderr
+
+
 @pytest.mark.parametrize("malformation,code", [
     ("missing_source_hash", "evidence_binding_missing"),
     ("family_leakage", "family_split_leakage"),

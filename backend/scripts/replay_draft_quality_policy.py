@@ -423,13 +423,13 @@ def scenario_preflight(manifest_path, expected):
     require(set(charter) == {"schema_version", "kind", "version", "patch", "ruleset",
                              "eligibility_source", "effective_disables_source", "expert_signoff_record"},
             "charter_invalid")
-    text(charter["patch"])
-    text(charter["ruleset"])
+    require(text(charter["patch"]).strip(), "charter_invalid")
+    require(text(charter["ruleset"]).strip(), "charter_invalid")
     for name in ("eligibility_source", "effective_disables_source", "expert_signoff_record"):
         reference = charter[name]
         require(isinstance(reference, dict) and set(reference) == {"record_id", "sha256"},
                 "evidence_binding_missing")
-        text(reference["record_id"])
+        require(text(reference["record_id"]).strip(), "evidence_binding_missing")
         require(is_hash(reference["sha256"]), "evidence_binding_missing")
     scenarios = read_artifact(root, refs, "scenarios", checked)
     header(scenarios, "authored_draft_scenario_set")

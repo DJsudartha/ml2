@@ -445,6 +445,8 @@ def metadata_preflight(args):
     if "exclusion_registry_id" in exclusions_input:
         registry_fields.add("exclusion_registry_id")
     metadata_fields(exclusions_input, registry_fields)
+    if type(exclusions_input.get("version")) is not int or exclusions_input["version"] != 1:
+        raise QualificationError("invalid_exclusion_registry")
     if isinstance(exclusions_input.get("entries"), list):
         for entry in exclusions_input["entries"]:
             metadata_fields(entry, ("game_id", "liquipedia_match_id", "layout_id", "reason", "source"))

@@ -935,3 +935,20 @@ runpy.run_module("backend.scripts.replay_order_qualification", run_name="__main_
     assert run.stderr == ""
     assert "PRIVATE_FILESYSTEM_PATH" not in run.stdout
     assert not output.exists()
+
+
+@pytest.mark.parametrize("version", [True, 1.0], ids=["boolean", "float"])
+def test_metadata_preflight_requires_an_integer_exclusion_registry_version(tmp_path, version):
+    inputs = metadata_inputs(tmp_path)
+    registry = json.loads(inputs[1].read_text(encoding="utf-8"))
+    registry["version"] = version
+    inputs[3]["exclusion_registry_sha256"] = write_json(inputs[1], registry)
+    write_json(inputs[2], inputs[3])
+    before = {path: path.read_bytes() for path in (inputs[1], inputs[2], *inputs[4])}
+    run, output = run_preflight(inputs, guard_payloads=True)
+    result = safe_disabled_decision(run, output, tmp_path)
+    assert result["failure_codes"] == ["invalid_exclusion_registry"]
+    assert result["metadata_valid"] is False
+    assert result["referenced_payloads_opened"] is False
+    assert result["empirical_admissibility_established"] is False
+    assert all(path.read_bytes() == raw for path, raw in before.items())

@@ -61,17 +61,158 @@ def bundle(root):
     return manifest, policy, benchmark, replay
 
 
-def run_replay(root, manifest, output="report.json"):
+def run_replay(root, manifest, output="report.json", *, preflight=False):
     manifest_ref = artifact(root, "manifest.json", manifest)
     result = subprocess.run(
         [sys.executable, "-m", "backend.scripts.replay_draft_quality_policy",
          "--manifest", str(root / "manifest.json"), "--manifest-sha256", manifest_ref["sha256"],
-         "--output", output],
+         "--output", output, *(["--preflight"] if preflight else [])],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     report_path = root / output
     report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else None
     return result, report
+
+
+def scenario_bundle(root):
+    # These are software fixtures, not authored benchmark evidence or expert sign-off.
+    binding = {"record_id": "synthetic-record", "sha256": "1" * 64}
+    charter = {
+        "schema_version": 1, "kind": "organized_draft_expert_charter", "version": "synthetic-charter-v1",
+        "patch": "synthetic-patch", "ruleset": "synthetic-organized-five-player-rules",
+        "eligibility_source": binding, "effective_disables_source": binding,
+        "expert_signoff_record": binding,
+    }
+    charter_ref = artifact(root, "charter.json", charter)
+    scenarios = {
+        "schema_version": 1, "kind": "authored_draft_scenario_set", "version": "synthetic-scenarios-v1",
+        "scenario_type": "synthetic_software_fixture", "charter_sha256": charter_ref["sha256"],
+        "scenarios": [
+            {"scenario_id": "synthetic-base", "author_id": "synthetic-author", "base_family_id": "family-a",
+             "split": "development", "judgment_author_id": "synthetic-author"},
+            {"scenario_id": "synthetic-variant", "author_id": "synthetic-author", "base_family_id": "family-a",
+             "split": "development", "judgment_author_id": None},
+        ],
+    }
+    manifest = {
+        "schema_version": 1, "kind": "expert_scenario_preflight_manifest", "version": "synthetic-preflight-v1",
+        "synthetic": True, "artifacts": {"charter": charter_ref,
+                                           "scenarios": artifact(root, "scenarios.json", scenarios)},
+    }
+    return manifest, charter, scenarios
+
+
+def test_public_scenario_preflight_reports_family_dependence_without_release_readiness(tmp_path):
+    manifest, _, _ = scenario_bundle(tmp_path)
+    artifact(tmp_path, "manifest.json", manifest)
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+    verification = report["verification"]
+    assert verification["kind"] == "expert_scenario_preflight_report"
+    assert verification["status"] == "validated"
+    assert verification["counts"] == {"scenarios": 2, "base_families": 1, "authors": 1,
+                                      "same_author_judgments": 1, "undeclared_judgment_authors": 1}
+    assert verification["dependence"]["same_author_judgments_permitted"] is True
+    assert verification["dependence"]["evaluation_unit"] == "unresolved_scenario_family_policy"
+    assert verification["source_evidence_bytes_checked"] is False
+    assert verification["release_gate"]["enabled"] is False
+    assert verification["evaluation_performed"] is False
+    assert "metrics" not in verification
+    assert report["run"]["entry_point"] == "cli_scenario_preflight"
+    for name, raw in before.items():
+        assert (tmp_path / name).read_bytes() == raw
+
+
+def test_scenario_preflight_requires_expert_signoff_binding_without_echoing_charter(tmp_path):
+    manifest, charter, _ = scenario_bundle(tmp_path)
+    charter.pop("expert_signoff_record")
+    charter["patch"] = "PRIVATE_CHARTER_MARKER"
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["kind"] == "expert_scenario_preflight_report"
+    assert report["verification"]["failure"]["code"] == "evidence_binding_missing"
+    assert report["verification"]["release_gate"]["enabled"] is False
+    assert "PRIVATE_CHARTER_MARKER" not in json.dumps(report) + result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("malformation,code", [
+    ("missing_source_hash", "evidence_binding_missing"),
+    ("family_leakage", "family_split_leakage"),
+    ("duplicate_scenario", "scenario_identity_invalid"),
+    ("historical_match", "scenario_type_mismatch"),
+    ("schema_version", "schema_invalid"),
+    ("match_id_payload", "scenario_schema_unsupported"),
+])
+def test_scenario_preflight_rejects_unsupported_or_leaking_metadata(tmp_path, malformation, code):
+    manifest, charter, scenarios = scenario_bundle(tmp_path)
+    if malformation == "missing_source_hash":
+        charter["eligibility_source"] = {"record_id": "PRIVATE_SOURCE_MARKER"}
+    elif malformation == "family_leakage":
+        scenarios["scenarios"][1]["split"] = "locked_evaluation"
+    elif malformation == "duplicate_scenario":
+        scenarios["scenarios"][1]["scenario_id"] = scenarios["scenarios"][0]["scenario_id"]
+    elif malformation == "historical_match":
+        scenarios["scenario_type"] = "historical_match"
+    elif malformation == "schema_version":
+        scenarios["schema_version"] = 2
+    else:
+        scenarios["scenarios"][0]["match_id"] = "PRIVATE_MATCH_MARKER"
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(tmp_path, "scenarios.json", scenarios)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == code
+    assert report["verification"]["release_gate"]["enabled"] is False
+    visible = json.dumps(report) + result.stdout + result.stderr
+    assert "PRIVATE_" not in visible
+    assert str(tmp_path) not in visible
+    assert "Traceback" not in visible
+
+
+def test_scenario_preflight_never_opens_referenced_source_or_signoff_records(tmp_path):
+    manifest, charter, scenarios = scenario_bundle(tmp_path)
+    forbidden = tmp_path / "synthetic-source-record.json"
+    forbidden.write_bytes(b"SYNTHETIC_DO_NOT_OPEN")
+    for key in ("eligibility_source", "effective_disables_source", "expert_signoff_record"):
+        charter[key] = {"record_id": forbidden.name, "sha256": "1" * 64}
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(tmp_path, "scenarios.json", scenarios)
+    reference = artifact(tmp_path, "manifest.json", manifest)
+    # Audit the filesystem boundary in the CLI process; an attempted read fails the run.
+    guard = """
+import os, pathlib, runpy, sys
+forbidden = pathlib.Path(sys.argv[1]).resolve()
+def audit(event, args):
+    if event == 'open' and isinstance(args[0], (str, bytes)):
+        if pathlib.Path(os.fsdecode(args[0])).resolve() == forbidden:
+            raise RuntimeError('prohibited source record access')
+sys.addaudithook(audit)
+sys.argv = ['replay_draft_quality_policy', *sys.argv[2:]]
+runpy.run_module('backend.scripts.replay_draft_quality_policy', run_name='__main__')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", guard, str(forbidden), "--preflight",
+         "--manifest", str(tmp_path / "manifest.json"), "--manifest-sha256", reference["sha256"],
+         "--output", "report.json"], cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert report["verification"]["source_evidence_bytes_checked"] is False
+    assert forbidden.read_bytes() == b"SYNTHETIC_DO_NOT_OPEN"
+
+
+def test_scenario_preflight_refuses_to_overwrite_charter_input(tmp_path):
+    manifest, _, _ = scenario_bundle(tmp_path)
+    before = (tmp_path / "charter.json").read_bytes()
+    result, _ = run_replay(tmp_path, manifest, output="charter.json", preflight=True)
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["failure"]["code"] == "report_output_unavailable"
+    assert (tmp_path / "charter.json").read_bytes() == before
 
 
 def test_public_replay_reports_worked_match_metrics_without_approving_synthetic_evidence(tmp_path):

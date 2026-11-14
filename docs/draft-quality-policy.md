@@ -25,6 +25,73 @@ contains a safe status, run ID and verification digest, without paths, case iden
 judgments or exception traces. The command never fits, activates or replaces a model.
 Its gate covers recommendation quality only; it cannot approve an entire release.
 
+## Expert charter/scenario preflight
+
+Use the same public CLI with `--preflight` for the separate prospective metadata path:
+
+```powershell
+python -m backend.scripts.replay_draft_quality_policy --preflight --manifest private/draft-quality/scenario-manifest.json --manifest-sha256 <trusted-manifest-sha256> --output preflight-001.json
+```
+
+This path validates declarations and bindings only. It does not create scenarios,
+judge options, inspect source/sign-off records, run recommendations, calculate metrics,
+approve a policy, or establish empirical admissibility. Real readiness remains disabled
+for every preflight report. Without `--preflight`, historical policy replay retains its
+existing contract below.
+
+All three documents use schema version 1 and an opaque `version`. The manifest kind is
+`expert_scenario_preflight_manifest`; its only other fields are `synthetic` and
+`artifacts`. The artifacts map contains exactly `charter` and `scenarios`, each using
+the existing relative-path and SHA-256 binding. Hashes are checked before JSON decoding.
+No policy, benchmark judgments or candidate output is accepted in this manifest.
+
+The charter kind is `organized_draft_expert_charter`:
+
+| Field | Declaration |
+| --- | --- |
+| `patch` | One named patch, as a nonempty string; no inferred deployment or patch-neutral substitution |
+| `ruleset` | The declared, versioned organized-draft ruleset identifier |
+| `eligibility_source` | Source-record binding for the eligible hero universe |
+| `effective_disables_source` | Source-record binding for disables and their effective scope |
+| `expert_signoff_record` | Explicit expert sign-off record binding; its presence is not approval verification |
+
+Each source/sign-off binding contains exactly an opaque `record_id` and a SHA-256.
+These are references only and are never opened, fetched, or treated as authenticated
+signatures. The charter bytes are checked; the referenced evidence bytes are not.
+
+The scenario-set kind is `authored_draft_scenario_set`. It contains `charter_sha256`,
+`scenario_type`, and a nonempty `scenarios` list. Its charter hash must match the checked
+charter bytes. `scenario_type` is `expert_authored_nonhistorical` for declared real
+metadata or `synthetic_software_fixture` when the manifest has `synthetic: true`.
+Historical matches belong to the existing replay path and cannot be retyped here.
+Public positive fixtures are explicitly synthetic software metadata, not real cases.
+
+Each scenario has exactly `scenario_id`, `author_id`, `base_family_id`, `split`, and
+`judgment_author_id`. There is no `match_id`, label, recommendation, context payload,
+or option judgment in this metadata schema. IDs are explicit opaque declarations.
+`split` is `development` or `locked_evaluation`; every scenario and derivative declared
+in one base family must stay in the same split. Duplicate scenario IDs and family
+leakage are rejected. Declaring a false family cannot be detected from these bytes.
+`judgment_author_id` may be null while judgment ownership is unresolved. The scenario
+author may also be the declared judgment author; the report discloses that dependence
+instead of asserting independence.
+
+Reports include aggregate scenario/family/author counts, same-author judgment counts,
+unknown judgment-author counts, checked artifact hashes and versions, and explicit
+`source_evidence_bytes_checked: false` and `evaluation_performed: false`. They contain
+no author/scenario identities or source record IDs. The report makes no statistical
+claim: scenario-family evaluation units, author effects, uncertainty methods and
+numerical policy remain unresolved. Historical match floors and match bootstrap
+semantics are not applied to authored scenario families.
+
+Malformed, unsupported, payload-bearing, unbound or leaking metadata receives a safe
+structured rejection. The same bounded parser, private output confinement, exclusive
+creation, deterministic verification digest and run-metadata separation apply.
+Input bytes are preserved. A valid report exits 0 while its release gate stays disabled;
+CLI success cannot authenticate an expert, establish honest access history, prove
+unrecorded access absent, verify eligibility/disables, or satisfy issue #79's real
+benchmark and policy-approval acceptance criteria.
+
 ## Frozen artifacts and trust
 
 A trusted SHA-256 supplied outside the manifest pins its exact UTF-8 bytes. Each referenced

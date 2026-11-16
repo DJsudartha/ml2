@@ -615,3 +615,340 @@ def test_deeply_nested_json_has_a_safe_public_parser_rejection(tmp_path):
     assert not inputs[6].exists()
     assert all(path.read_bytes() == content for path, content in before.items())
     assert payload_marker not in run.stdout + run.stderr + inputs[7].read_text(encoding="utf-8")
+
+
+def metadata_inputs(tmp_path):
+    private = tmp_path / "private"
+    private.mkdir()
+    exclusions = tmp_path / "metadata-exclusions.json"
+    exclusion_hash = write_json(exclusions, {"version": 1, "entries": [{
+        "game_id": "synthetic-excluded", "liquipedia_match_id": "synthetic-excluded-match",
+        "layout_id": "synthetic-layout", "reason": "development", "source": "synthetic",
+    }]})
+    payloads = []
+    references = []
+    for kind in ("proposal", "labels", "ocr", "media", "evaluation"):
+        path = tmp_path / f"synthetic-{kind}.bin"
+        path.write_bytes(b"PRIVATE_SYNTHETIC_PAYLOAD_DO_NOT_OPEN")
+        payloads.append(path)
+        references.append({"kind": kind, "path": path.name, "sha256": "a" * 64})
+    manifest = tmp_path / "metadata-manifest.json"
+    value = {
+        "kind": "order_qualification_metadata_manifest", "schema_version": 1,
+        "version": "synthetic-metadata-v1", "data_origin": "synthetic",
+        "exclusion_registry_sha256": exclusion_hash,
+        "roles": {"custodian": "synthetic-custodian", "policy_selector": "synthetic-policy",
+                  "independent_evaluator": "synthetic-evaluator",
+                  "reference_reviewer": "synthetic-reviewer"},
+        "custodian_overlap_audits": [],
+        "games": [{
+            "game_id": f"synthetic-{partition}", "match_id": f"synthetic-match-{partition}",
+            "layout_id": "synthetic-layout", "partition": partition,
+            "exclusion_status": "not_listed", "historical_holdout_lineage": "none",
+            "reference_provenance": "independent_blind",
+            "custody_record": {"record_id": "synthetic-custody-record", "sha256": "b" * 64},
+            "exposure": {"capture": "complete", "proposal_generation": "yes",
+                         "developer_inspection": "no", "policy_selection_access": "clear",
+                         "evaluator_prefreeze_result_access": "clear",
+                         "blind_reviewer_answer_exposure": "clear"},
+            "payload_references": references,
+        } for partition in ("calibration", "qualification_evaluation")],
+    }
+    write_json(manifest, value)
+    return private, exclusions, manifest, value, payloads
+
+
+def run_preflight(inputs, *, output_name="metadata-report.json", guard_payloads=False):
+    private, exclusions, manifest, _, payloads = inputs
+    output = private / output_name
+    args = ["preflight", "--metadata-manifest", manifest, "--exclusion-registry", exclusions,
+            "--output", output, "--private-root", private]
+    if guard_payloads:
+        launcher = """
+import json, os, runpy, sys
+blocked = {os.path.normcase(os.path.abspath(p)) for p in json.loads(sys.argv[1])}
+def guard(event, args):
+    if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
+        if os.path.normcase(os.path.abspath(os.fsdecode(args[0]))) in blocked:
+            raise RuntimeError("PROHIBITED_SYNTHETIC_PAYLOAD_OPEN")
+sys.addaudithook(guard)
+sys.argv = ["order-qualification", *sys.argv[2:]]
+runpy.run_module("backend.scripts.replay_order_qualification", run_name="__main__")
+"""
+        run = subprocess.run([sys.executable, "-c", launcher, json.dumps(list(map(str, payloads))),
+                              *map(str, args)], cwd=ROOT, capture_output=True, text=True, check=False)
+    else:
+        run = run_cli(*args)
+    return run, output
+
+
+def test_metadata_preflight_checks_declarations_without_opening_any_payload(tmp_path):
+    inputs = metadata_inputs(tmp_path)
+    before = {path: path.read_bytes() for path in (inputs[1], inputs[2], *inputs[4])}
+    run, output = run_preflight(inputs, guard_payloads=True)
+    assert run.returncode == 0, run.stderr or run.stdout
+    report = json.loads(output.read_text(encoding="utf-8"))
+    result = report["verification"]
+    assert report["run"]["entry_point"] == "cli_preflight"
+    assert result["metadata_valid"] is True
+    assert result["metadata_blockers"] == []
+    assert result["counts"]["selected_games"] == 2
+    assert result["counts"]["capture_status"] == {"complete": 2}
+    assert result["counts"]["proposal_generation"] == {"yes": 2}
+    assert result["empirical_admissibility_established"] is False
+    assert result["referenced_payloads_opened"] is False
+    assert result["qualification_gate_enabled"] is False
+    assert result["automatic_acceptance_performed"] is False
+    assert all(path.read_bytes() == raw for path, raw in before.items())
+    visible = run.stdout + run.stderr + output.read_text(encoding="utf-8")
+    assert "PRIVATE_SYNTHETIC_PAYLOAD_DO_NOT_OPEN" not in visible
+    assert str(tmp_path) not in visible
+
+
+@pytest.mark.parametrize("problem,code", [
+    ("game_duplicate", "duplicate_metadata_game"),
+    ("match_duplicate", "metadata_games_must_use_distinct_matches"),
+    ("split_overlap", "metadata_match_split_overlap"),
+])
+def test_metadata_preflight_rejects_duplicate_or_cross_split_identities(tmp_path, problem, code):
+    inputs = metadata_inputs(tmp_path)
+    value = inputs[3]
+    if problem == "game_duplicate":
+        value["games"][1]["game_id"] = value["games"][0]["game_id"]
+    elif problem == "match_duplicate":
+        extra = dict(value["games"][0], game_id="synthetic-extra", layout_id="other-layout")
+        value["games"].append(extra)
+    else:
+        value["games"][1]["match_id"] = value["games"][0]["match_id"]
+        value["games"][1]["layout_id"] = "other-layout"
+    write_json(inputs[2], value)
+    before = inputs[2].read_bytes()
+    run, output = run_preflight(inputs)
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == [code]
+    assert inputs[2].read_bytes() == before
+
+
+@pytest.mark.parametrize("field,value,code", [
+    ("capture", "unknown", "unknown_metadata_exposure"),
+    ("proposal_generation", "unknown", "unknown_metadata_exposure"),
+    ("developer_inspection", "yes", "evaluation_development_exposure"),
+    ("policy_selection_access", "exposed", "evaluation_policy_selection_access"),
+    ("evaluator_prefreeze_result_access", "exposed", "evaluator_prefreeze_result_access"),
+    ("blind_reviewer_answer_exposure", "exposed", "reference_provenance_contradiction"),
+    ("historical_holdout_lineage", "unresolved", "historical_holdout_lineage_unresolved"),
+    ("exclusion_status", "unknown", "exclusion_status_unknown"),
+])
+def test_metadata_preflight_preserves_declared_blockers_without_claiming_admissibility(
+        tmp_path, field, value, code):
+    inputs = metadata_inputs(tmp_path)
+    row = inputs[3]["games"][1]
+    if field in {"historical_holdout_lineage", "exclusion_status"}:
+        row[field] = value
+    else:
+        row["exposure"][field] = value
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs)
+    assert run.returncode == 0, run.stderr or run.stdout
+    result = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert result["metadata_valid"] is True
+    assert result["metadata_requirements_satisfied"] is False
+    assert code in result["metadata_blockers"]
+    assert result["empirical_admissibility_established"] is False
+    assert result["qualification_gate_enabled"] is False
+
+
+def test_metadata_preflight_keeps_assisted_calibration_distinct_from_blind_evaluation(tmp_path):
+    inputs = metadata_inputs(tmp_path)
+    row = inputs[3]["games"][0]
+    row["reference_provenance"] = "proposal_assisted"
+    row["exposure"].update(blind_reviewer_answer_exposure="exposed", developer_inspection="yes",
+                           policy_selection_access="exposed")
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs)
+    assert run.returncode == 0, run.stderr or run.stdout
+    result = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert result["metadata_blockers"] == []
+    assert result["counts"]["reference_provenance"] == {"independent_blind": 1, "proposal_assisted": 1}
+    assert result["qualification_gate_enabled"] is False
+
+
+@pytest.mark.parametrize("audited,exposed,expected", [
+    (False, False, ["custodian_role_overlap_unaudited"]),
+    (True, False, []),
+    (True, True, ["evaluation_policy_selection_access"]),
+])
+def test_metadata_preflight_audits_custodian_overlap_without_waiving_access_rules(
+        tmp_path, audited, exposed, expected):
+    inputs = metadata_inputs(tmp_path)
+    value = inputs[3]
+    value["roles"]["custodian"] = value["roles"]["policy_selector"]
+    if audited:
+        value["custodian_overlap_audits"] = [{
+            "role": "policy_selector", "record_id": "synthetic-overlap-audit", "sha256": "c" * 64,
+        }]
+    if exposed:
+        value["games"][1]["exposure"]["policy_selection_access"] = "exposed"
+    write_json(inputs[2], value)
+    run, output = run_preflight(inputs)
+    assert run.returncode == 0, run.stderr or run.stdout
+    result = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert result["metadata_blockers"] == expected
+    assert result["custodian_role_overlaps"] == {"declared": 1, "audited": int(audited)}
+    assert result["qualification_gate_enabled"] is False
+
+
+def test_metadata_preflight_does_not_invent_blanket_non_custodian_role_conflicts(tmp_path):
+    inputs = metadata_inputs(tmp_path)
+    for role in ("policy_selector", "independent_evaluator", "reference_reviewer"):
+        inputs[3]["roles"][role] = "synthetic-shared-role-holder"
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs)
+    assert run.returncode == 0, run.stderr or run.stdout
+    result = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert result["metadata_blockers"] == []
+    assert result["human_independence_authenticated"] is False
+
+
+@pytest.mark.parametrize("problem,code", [
+    ("duplicate_json_key", "input_unavailable_or_invalid_json"),
+    ("boolean_version", "wrong_document_kind_or_version"),
+    ("exposure_container", "invalid_metadata_exposure"),
+])
+def test_metadata_preflight_rejects_ambiguous_or_malformed_schema_without_leaking(tmp_path, problem, code):
+    inputs = metadata_inputs(tmp_path)
+    if problem == "duplicate_json_key":
+        raw = inputs[2].read_text(encoding="utf-8")
+        inputs[2].write_text('{"version":"PRIVATE_DUPLICATE_METADATA",' + raw[1:], encoding="utf-8")
+    else:
+        if problem == "boolean_version":
+            inputs[3]["schema_version"] = True
+        else:
+            inputs[3]["games"][0]["exposure"]["capture"] = ["PRIVATE_INVALID_EXPOSURE"]
+        write_json(inputs[2], inputs[3])
+    before = inputs[2].read_bytes()
+    run, output = run_preflight(inputs, guard_payloads=True)
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["failure_codes"] == [code]
+    assert inputs[2].read_bytes() == before
+    assert "PRIVATE_" not in run.stdout + run.stderr + output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("surface", ["manifest", "game", "exposure", "reference", "custody"])
+def test_metadata_preflight_rejects_payload_fields_without_opening_references(tmp_path, surface):
+    inputs = metadata_inputs(tmp_path)
+    row = inputs[3]["games"][0]
+    target = {"manifest": inputs[3], "game": row, "exposure": row["exposure"],
+              "reference": row["payload_references"][0], "custody": row["custody_record"]}[surface]
+    target["proposal_batches"] = [["PRIVATE_PAYLOAD_IN_METADATA"]]
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs, guard_payloads=True)
+    result = safe_disabled_decision(run, output, tmp_path)
+    assert result["failure_codes"] == ["invalid_metadata_schema"]
+    assert "PRIVATE_PAYLOAD_IN_METADATA" not in run.stdout + run.stderr + output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("declared,expected", [
+    ("not_listed", ["evaluation_contains_excluded_match", "exclusion_status_conflict"]),
+    ("excluded", ["evaluation_contains_excluded_match"]),
+])
+def test_metadata_preflight_checks_declared_exclusions_at_match_level(tmp_path, declared, expected):
+    inputs = metadata_inputs(tmp_path)
+    row = inputs[3]["games"][1]
+    row.update(match_id="synthetic-excluded-match", layout_id="another-layout", exclusion_status=declared)
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs)
+    assert run.returncode == 0, run.stderr or run.stdout
+    result = json.loads(output.read_text(encoding="utf-8"))["verification"]
+    assert result["metadata_blockers"] == expected
+    assert result["qualification_gate_enabled"] is False
+
+
+@pytest.mark.parametrize("surface", ["registry", "entry"])
+def test_metadata_preflight_rejects_payload_bearing_exclusion_metadata(tmp_path, surface):
+    inputs = metadata_inputs(tmp_path)
+    value = json.loads(inputs[1].read_text(encoding="utf-8"))
+    target = value if surface == "registry" else value["entries"][0]
+    target["labels"] = ["PRIVATE_EXCLUSION_PAYLOAD"]
+    inputs[3]["exclusion_registry_sha256"] = write_json(inputs[1], value)
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs, guard_payloads=True)
+    decision = safe_disabled_decision(run, output, tmp_path)
+    assert decision["metadata_valid"] is False
+    assert decision["empirical_admissibility_established"] is False
+    assert decision["failure_codes"] == ["invalid_metadata_schema"]
+    assert "PRIVATE_EXCLUSION_PAYLOAD" not in run.stdout + run.stderr + output.read_text(encoding="utf-8")
+
+
+def test_metadata_preflight_report_is_reproducible_and_output_is_exclusive(tmp_path):
+    inputs = metadata_inputs(tmp_path)
+    first, output = run_preflight(inputs)
+    second, output2 = run_preflight(inputs, output_name="second-metadata-report.json")
+    assert first.returncode == second.returncode == 0
+    one, two = (json.loads(path.read_text(encoding="utf-8")) for path in (output, output2))
+    assert one["verification"] == two["verification"]
+    assert one["verification_sha256"] == two["verification_sha256"]
+    assert one["run"]["run_id"] != two["run"]["run_id"]
+    before = output.read_bytes()
+    refused, _ = run_preflight(inputs)
+    assert refused.returncode == 1
+    assert json.loads(refused.stdout)["failure_codes"] == ["output_already_exists"]
+    assert output.read_bytes() == before
+    escaped, escaped_path = run_preflight(inputs, output_name="../escape.json")
+    assert escaped.returncode == 1
+    assert json.loads(escaped.stdout)["failure_codes"] == ["output_must_be_within_existing_private_root"]
+    assert not escaped_path.exists()
+
+
+@pytest.mark.parametrize("field,code", [("game", "invalid_metadata_membership"), ("role", "invalid_metadata_roles")])
+def test_metadata_preflight_rejects_noncanonical_identity_strings(tmp_path, field, code):
+    inputs = metadata_inputs(tmp_path)
+    if field == "game":
+        inputs[3]["games"][0]["game_id"] = " synthetic-calibration"
+    else:
+        inputs[3]["roles"]["custodian"] = "synthetic-custodian "
+    write_json(inputs[2], inputs[3])
+    run, output = run_preflight(inputs)
+    assert safe_disabled_decision(run, output, tmp_path)["failure_codes"] == [code]
+
+
+def test_metadata_preflight_safely_rejects_output_resolution_failure(tmp_path):
+    inputs = metadata_inputs(tmp_path)
+    output = inputs[0] / "synthetic-unresolvable.json"
+    launcher = """
+import runpy, sys
+from pathlib import Path
+original = Path.resolve
+def unavailable(path, *args, **kwargs):
+    if path.name == "synthetic-unresolvable.json":
+        raise OSError("PRIVATE_FILESYSTEM_PATH")
+    return original(path, *args, **kwargs)
+Path.resolve = unavailable
+sys.argv = ["order-qualification", *sys.argv[1:]]
+runpy.run_module("backend.scripts.replay_order_qualification", run_name="__main__")
+"""
+    run = subprocess.run([sys.executable, "-c", launcher, "preflight", "--metadata-manifest", str(inputs[2]),
+                          "--exclusion-registry", str(inputs[1]), "--output", str(output),
+                          "--private-root", str(inputs[0])], cwd=ROOT, capture_output=True, text=True, check=False)
+    assert run.returncode == 1
+    assert json.loads(run.stdout)["failure_codes"] == ["output_path_unavailable"]
+    assert run.stderr == ""
+    assert "PRIVATE_FILESYSTEM_PATH" not in run.stdout
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("version", [True, 1.0], ids=["boolean", "float"])
+def test_metadata_preflight_requires_an_integer_exclusion_registry_version(tmp_path, version):
+    inputs = metadata_inputs(tmp_path)
+    registry = json.loads(inputs[1].read_text(encoding="utf-8"))
+    registry["version"] = version
+    inputs[3]["exclusion_registry_sha256"] = write_json(inputs[1], registry)
+    write_json(inputs[2], inputs[3])
+    before = {path: path.read_bytes() for path in (inputs[1], inputs[2], *inputs[4])}
+    run, output = run_preflight(inputs, guard_payloads=True)
+    result = safe_disabled_decision(run, output, tmp_path)
+    assert result["failure_codes"] == ["invalid_exclusion_registry"]
+    assert result["metadata_valid"] is False
+    assert result["referenced_payloads_opened"] is False
+    assert result["empirical_admissibility_established"] is False
+    assert all(path.read_bytes() == raw for path, raw in before.items())

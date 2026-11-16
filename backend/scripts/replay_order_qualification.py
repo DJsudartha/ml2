@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import uuid
 
 from backend.services.data.pick_order_exclusions import validate_exclusion_registry
@@ -54,7 +54,7 @@ def is_hash(value):
     return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
 
 
-def read_document(path, expected=None):
+def read_document(path, expected=None, *, unique_keys=False):
     try:
         raw = path.read_bytes()
     except OSError as exc:
@@ -65,7 +65,7 @@ def read_document(path, expected=None):
     if expected is not None and actual != expected:
         raise QualificationError("input_integrity_mismatch")
     try:
-        value = json.loads(raw)
+        value = json.loads(raw, object_pairs_hook=unique_metadata_object if unique_keys else None)
     except (UnicodeError, ValueError, OverflowError, RecursionError) as exc:
         raise QualificationError("input_unavailable_or_invalid_json") from exc
     if not isinstance(value, dict):
@@ -378,13 +378,196 @@ def calibrate(args, now):
     }
 
 
+METADATA_ROLES = {"custodian", "policy_selector", "independent_evaluator", "reference_reviewer"}
+METADATA_EXPOSURE = {
+    "capture": {"complete", "interrupted", "failed", "none", "unknown"},
+    "proposal_generation": {"yes", "no", "unknown"},
+    "developer_inspection": {"yes", "no", "unknown"},
+    "policy_selection_access": {"clear", "exposed", "unknown"},
+    "evaluator_prefreeze_result_access": {"clear", "exposed", "unknown"},
+    "blind_reviewer_answer_exposure": {"clear", "exposed", "unknown"},
+}
+
+
+def unique_metadata_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate metadata key")
+        value[key] = item
+    return value
+
+
+def metadata_fields(value, fields):
+    if not isinstance(value, dict) or set(value) != set(fields):
+        raise QualificationError("invalid_metadata_schema")
+
+
+def metadata_identifier(value):
+    return (nonempty(value) and value == value.strip() and len(value) <= 512
+            and all(ord(char) >= 32 and ord(char) != 127 for char in value))
+
+
+def metadata_record(value):
+    metadata_fields(value, ("record_id", "sha256"))
+    if not metadata_identifier(value["record_id"]) or not is_hash(value["sha256"]):
+        raise QualificationError("invalid_metadata_record_binding")
+
+
+def metadata_preflight(args):
+    manifest, manifest_hash = read_document(args.metadata_manifest, unique_keys=True)
+    if type(manifest.get("schema_version")) is not int:
+        raise QualificationError("wrong_document_kind_or_version")
+    require_document(manifest, "order_qualification_metadata_manifest")
+    metadata_fields(manifest, ("kind", "schema_version", "version", "data_origin",
+                              "exclusion_registry_sha256", "roles", "custodian_overlap_audits", "games"))
+    if (not metadata_identifier(manifest["version"]) or manifest["data_origin"] not in ("real", "synthetic")
+            or not is_hash(manifest["exclusion_registry_sha256"])):
+        raise QualificationError("invalid_metadata_schema")
+    metadata_fields(manifest["roles"], METADATA_ROLES)
+    if not all(metadata_identifier(actor) for actor in manifest["roles"].values()):
+        raise QualificationError("invalid_metadata_roles")
+    if not isinstance(manifest["custodian_overlap_audits"], list):
+        raise QualificationError("invalid_metadata_roles")
+    overlaps = {role for role, actor in manifest["roles"].items()
+                if role != "custodian" and actor == manifest["roles"]["custodian"]}
+    audited_roles = set()
+    for audit in manifest["custodian_overlap_audits"]:
+        metadata_fields(audit, ("role", "record_id", "sha256"))
+        role = audit["role"]
+        if (not isinstance(role, str) or role not in overlaps or role in audited_roles
+                or not metadata_identifier(audit["record_id"]) or not is_hash(audit["sha256"])):
+            raise QualificationError("invalid_custodian_overlap_audit")
+        audited_roles.add(role)
+    exclusions_input, exclusions_hash = read_document(
+        args.exclusion_registry, manifest["exclusion_registry_sha256"], unique_keys=True)
+    registry_fields = {"version", "entries"}
+    if "exclusion_registry_id" in exclusions_input:
+        registry_fields.add("exclusion_registry_id")
+    metadata_fields(exclusions_input, registry_fields)
+    if type(exclusions_input.get("version")) is not int or exclusions_input["version"] != 1:
+        raise QualificationError("invalid_exclusion_registry")
+    if isinstance(exclusions_input.get("entries"), list):
+        for entry in exclusions_input["entries"]:
+            metadata_fields(entry, ("game_id", "liquipedia_match_id", "layout_id", "reason", "source"))
+    try:
+        exclusions = validate_exclusion_registry(exclusions_input)
+    except ValueError as exc:
+        raise QualificationError("invalid_exclusion_registry") from exc
+    if ("exclusion_registry_id" in exclusions_input
+            and exclusions_input["exclusion_registry_id"] != exclusions["exclusion_registry_id"]):
+        raise QualificationError("invalid_exclusion_registry")
+    games = manifest["games"]
+    if not isinstance(games, list) or not games:
+        raise QualificationError("invalid_metadata_membership")
+    for row in games:
+        metadata_fields(row, ("game_id", "match_id", "layout_id", "partition", "exclusion_status",
+                              "historical_holdout_lineage", "custody_record", "exposure",
+                              "payload_references", "reference_provenance"))
+        if (not all(metadata_identifier(row[key]) for key in ("game_id", "match_id", "layout_id"))
+                or row["partition"] not in ("calibration", "qualification_evaluation")
+                or row["exclusion_status"] not in ("not_listed", "excluded", "unknown")
+                or row["historical_holdout_lineage"] not in ("none", "retired", "protected", "unresolved")
+                or row["reference_provenance"] not in ("independent_blind", "proposal_assisted", "missing")):
+            raise QualificationError("invalid_metadata_membership")
+        metadata_record(row["custody_record"])
+        metadata_fields(row["exposure"], METADATA_EXPOSURE)
+        if any(not isinstance(row["exposure"][key], str) or row["exposure"][key] not in statuses
+               for key, statuses in METADATA_EXPOSURE.items()):
+            raise QualificationError("invalid_metadata_exposure")
+        if not isinstance(row["payload_references"], list):
+            raise QualificationError("invalid_metadata_reference")
+        for reference in row["payload_references"]:
+            metadata_fields(reference, ("kind", "path", "sha256"))
+            path = reference["path"]
+            if (reference["kind"] not in ("proposal", "labels", "ocr", "media", "evaluation")
+                    or not metadata_identifier(path) or not is_hash(reference["sha256"])
+                    or "\\" in path or ":" in path or "\x00" in path
+                    or PureWindowsPath(path).is_absolute() or path.startswith("/")
+                    or ".." in path.split("/")):
+                raise QualificationError("invalid_metadata_reference")
+    if len({row["game_id"] for row in games}) != len(games):
+        raise QualificationError("duplicate_metadata_game")
+    matches = {}
+    for row in games:
+        previous = matches.get(row["match_id"])
+        if previous is not None:
+            code = ("metadata_match_split_overlap" if previous != row["partition"]
+                    else "metadata_games_must_use_distinct_matches")
+            raise QualificationError(code)
+        matches[row["match_id"]] = row["partition"]
+    counts = {"selected_games": len(games), "selected_matches": len(matches)}
+    for key in METADATA_EXPOSURE:
+        counts[key if key != "capture" else "capture_status"] = dict(
+            sorted(Counter(row["exposure"][key] for row in games).items()))
+    blockers = set()
+    if overlaps - audited_roles:
+        blockers.add("custodian_role_overlap_unaudited")
+    excluded_matches = {row["liquipedia_match_id"] for row in exclusions["entries"]}
+    excluded_games = {row["game_id"] for row in exclusions["entries"]}
+    for row in games:
+        exposure = row["exposure"]
+        evaluation = row["partition"] == "qualification_evaluation"
+        listed = row["match_id"] in excluded_matches or row["game_id"] in excluded_games
+        if row["exclusion_status"] == "unknown":
+            blockers.add("exclusion_status_unknown")
+        elif (row["exclusion_status"] == "excluded") != listed:
+            blockers.add("exclusion_status_conflict")
+        if evaluation and (listed or row["exclusion_status"] == "excluded"):
+            blockers.add("evaluation_contains_excluded_match")
+        lineage = row["historical_holdout_lineage"]
+        if lineage == "unresolved":
+            blockers.add("historical_holdout_lineage_unresolved")
+        elif lineage == "protected":
+            blockers.add("protected_holdout")
+        elif evaluation and lineage == "retired":
+            blockers.add("retired_holdout_not_untouched")
+        if "unknown" in exposure.values():
+            blockers.add("unknown_metadata_exposure")
+        provenance = row["reference_provenance"]
+        if provenance == "missing":
+            blockers.add("reference_not_established")
+        elif ((provenance == "independent_blind" and exposure["blind_reviewer_answer_exposure"] == "exposed")
+              or (provenance == "proposal_assisted" and exposure["blind_reviewer_answer_exposure"] != "exposed")):
+            blockers.add("reference_provenance_contradiction")
+        if evaluation:
+            if provenance != "independent_blind":
+                blockers.add("evaluation_reference_not_independent")
+            if exposure["developer_inspection"] == "yes":
+                blockers.add("evaluation_development_exposure")
+            if exposure["policy_selection_access"] == "exposed":
+                blockers.add("evaluation_policy_selection_access")
+            if exposure["evaluator_prefreeze_result_access"] == "exposed":
+                blockers.add("evaluator_prefreeze_result_access")
+    counts["reference_provenance"] = dict(sorted(Counter(row["reference_provenance"] for row in games).items()))
+    counts["partitions"] = dict(sorted(Counter(row["partition"] for row in games).items()))
+    return {
+        "status": "metadata_checked", "policy_kind": POLICY_KIND,
+        "metadata_valid": True, "metadata_blockers": sorted(blockers),
+        "metadata_requirements_satisfied": not blockers, "counts": counts,
+        "data_origin": manifest["data_origin"],
+        "custodian_role_overlaps": {"declared": len(overlaps), "audited": len(audited_roles)},
+        "lineage": {"metadata_manifest_sha256": manifest_hash,
+                    "exclusion_registry_sha256": exclusions_hash,
+                    "exclusion_registry_id": exclusions["exclusion_registry_id"]},
+        "empirical_admissibility_established": False, "referenced_payloads_opened": False,
+        "human_independence_authenticated": False, "unrecorded_access_absence_established": False,
+        "qualification_gate_enabled": False, "automatic_acceptance_performed": False,
+        "failure_codes": sorted(blockers),
+    }
+
+
+
 def output_path(path, private_root):
-    resolved, root = path.resolve(), private_root.resolve()
-    if not root.is_dir() or resolved == root or root not in resolved.parents or not resolved.parent.is_dir():
-        raise QualificationError("output_must_be_within_existing_private_root")
-    if resolved.exists():
-        raise QualificationError("output_already_exists")
-    return resolved
+    try:
+        resolved, root = path.resolve(), private_root.resolve()
+        if not root.is_dir() or resolved == root or root not in resolved.parents or not resolved.parent.is_dir():
+            raise QualificationError("output_must_be_within_existing_private_root")
+        if resolved.exists():
+            raise QualificationError("output_already_exists")
+        return resolved
+    except (OSError, RuntimeError) as exc:
+        raise QualificationError("output_path_unavailable") from exc
 
 
 def main():
@@ -392,6 +575,9 @@ def main():
     actions = parser.add_subparsers(dest="action", required=True)
     calibration = actions.add_parser("calibrate")
     evaluation = actions.add_parser("evaluate")
+    preflight = actions.add_parser("preflight")
+    for name in ("metadata-manifest", "exclusion-registry", "output", "private-root"):
+        preflight.add_argument(f"--{name}", type=Path, required=True)
     for action in (calibration, evaluation):
         for name in ("calibration-manifest", "evaluation-manifest", "exclusion-registry", "calibration-results",
                      "requirements", "output", "private-root"):
@@ -419,16 +605,27 @@ def main():
             with policy_output.open("xb") as handle:
                 handle.write(policy_bytes)
             verification["policy_sha256"] = digest(policy_bytes)
+        elif args.action == "preflight":
+            verification = metadata_preflight(args)
         else:
             verification = evaluate(args, now)
     except (QualificationError, OSError, KeyError, TypeError) as exc:
         verification = {"status": "disabled", "policy_kind": POLICY_KIND,
                         "qualification_gate_enabled": False, "automatic_acceptance_performed": False,
                         "failure_codes": [str(exc) if isinstance(exc, QualificationError) else "input_or_output_unavailable"]}
+    if args.action == "preflight" and verification["status"] == "disabled":
+        verification.update(metadata_valid=False, metadata_requirements_satisfied=False,
+                            empirical_admissibility_established=False, referenced_payloads_opened=False)
     verification["next_actions"] = list(dict.fromkeys(
         NEXT_ACTIONS.get(code, "Check the frozen input contract and unmet numerical requirements; keep qualification disabled.")
         for code in verification["failure_codes"]
     ))
+    if args.action == "preflight":
+        verification["next_actions"] = [
+            "Resolve declared metadata blockers with accountable records; preflight cannot admit or qualify games."
+            if verification["failure_codes"] else
+            "Obtain independent source/reference verification and approved policy; metadata checks cannot establish admissibility."
+        ]
     if verification["status"] == "calibrated":
         verification["next_actions"] = [NEXT_ACTIONS["concrete_policy_approval_missing"]]
     report = {"schema_version": 1, "event": f"order_qualification_{args.action}", "run": run,
@@ -442,7 +639,7 @@ def main():
     print(json.dumps({"status": verification["status"], "run_id": run["run_id"],
                       "qualification_gate_enabled": verification["qualification_gate_enabled"],
                       "failure_codes": verification["failure_codes"]}, sort_keys=True))
-    return 0 if verification["status"] in {"calibrated", "passed"} else 1
+    return 0 if verification["status"] in {"calibrated", "passed", "metadata_checked"} else 1
 
 
 if __name__ == "__main__":

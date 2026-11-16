@@ -1,6 +1,6 @@
 # Pick-order qualification calibration and replay
 
-This command evaluates pick-order reconstruction only. It does not accept games,
+The calibrate/evaluate commands assess pick-order reconstruction only; preflight checks metadata declarations. It does not accept games,
 change annotations, refresh sources, inspect media, train a model, or change serving.
 Recommendation quality and win probability are outside this policy kind.
 
@@ -8,6 +8,102 @@ The real benchmark and numerical-policy acceptance criteria for #78 remain unmet
 until the private inputs below are supplied. No real calibration threshold, sample
 requirement or approval is supplied by this change. The public tests use explicitly
 synthetic games and illustrative numbers; those numbers are not recommended defaults.
+
+## Metadata-only preflight
+
+Before assembling calibration or evaluation payloads, the separate preflight accepts
+a dedicated identity/custody/exposure manifest. It does not recover metadata from
+mixed receipts and does not open, resolve, hash, or verify any referenced proposal,
+label, OCR, media, evaluation, custody-audit or review-record file. Only the supplied
+metadata manifest and the separately supplied identity-only exclusion registry are
+read. Prepare these declarations through an authorized metadata process first.
+
+The preflight is an additive partial foundation for #78. It does not calibrate a
+threshold, evaluate order accuracy, establish empirical admissibility, qualify a
+game, authenticate a person, or enable automatic acceptance.
+
+Create the access-restricted private root and its output parent before running:
+
+~~~powershell
+python -m backend.scripts.replay_order_qualification preflight --metadata-manifest private/qualification/identity-custody-manifest.json --exclusion-registry private/qualification/exclusion-registry.json --output private/qualification/metadata-report-v1.json --private-root private/qualification
+~~~
+
+The metadata manifest is a schema-version-1 object with exactly these fields:
+
+| Field | Contract |
+| --- | --- |
+| kind | order_qualification_metadata_manifest |
+| schema_version, version | Integer 1 and a distinct, nonempty version identifier. |
+| data_origin | real or synthetic. Positive software fixtures remain synthetic. Neither value enables a gate. |
+| exclusion_registry_sha256 | Exact bytes of the supplied exclusion registry, checked before its decoding. |
+| roles | Exactly custodian, policy_selector, independent_evaluator and reference_reviewer, each an opaque actor identifier. One declared holder per role in this manifest. |
+| custodian_overlap_audits | A list of role, record_id and sha256 bindings for every role whose holder also holds custodian. No audit bytes are opened. Unsupported or repeated audit roles are rejected. |
+| games | Nonempty identity/exposure records described below. |
+
+Each game has exactly game_id, source-qualified match_id, layout_id, partition,
+exclusion_status, historical_holdout_lineage, reference_provenance, custody_record,
+exposure and payload_references. Identity strings are nonempty canonical strings:
+no surrounding whitespace or control characters, with a maximum of 512 characters.
+The runner cannot establish that supplied identities correspond to a real source.
+Repeated games, repeated matches within one partition, and shared matches across
+partitions are rejected even if their layout declarations differ. Partition is
+calibration or qualification_evaluation.
+
+- exclusion_status is not_listed, excluded or unknown. It must agree with the
+  hash-bound registry's game/match membership. Matching is by match irrespective of
+  layout. Excluded evaluation matches block; matching excluded calibration material
+  may remain disclosed. Not listed does not prove absence of unregistered exposure.
+- historical_holdout_lineage is none, retired, protected or unresolved.
+  Unresolved lineage and protected holdouts block. A retired holdout cannot return
+  to evaluation. A declaration cannot perform retirement or clear a protection.
+- reference_provenance is independent_blind, proposal_assisted or missing.
+  Independent-blind declarations with prior machine-answer exposure conflict.
+  Proposal-assisted calibration remains disclosed and requires declared exposure;
+  evaluation requires independent-blind references. Missing references block.
+- custody_record contains exactly a record_id and SHA-256 binding. This is an opaque
+  reference, not proof of custody or authority.
+- payload_references is a list of kind, path and sha256 declarations. Kind is
+  proposal, labels, ocr, media or evaluation. Paths are relative forward-slash
+  references without traversal, drive prefixes or backslashes. The path and hash
+  are checked as metadata only; targets need not exist and are never accessed.
+
+The exposure object has exactly these independent fields:
+
+| Field | Values and meaning |
+| --- | --- |
+| capture | complete, interrupted, failed, none or unknown; retained as capture status only. |
+| proposal_generation | yes, no or unknown; generation alone does not prove anyone inspected an answer. |
+| developer_inspection | yes, no or unknown; inspected evaluation material blocks. |
+| policy_selection_access | clear, exposed or unknown; exposed means the policy selector saw this case's answers/results before policy freeze. It blocks evaluation, while calibration access remains disclosed. |
+| evaluator_prefreeze_result_access | clear, exposed or unknown; evaluation results received before identity/policy freeze block. |
+| blind_reviewer_answer_exposure | clear, exposed or unknown; prior machine-answer exposure cannot be called an independent-blind reference. |
+
+Any unknown exposure remains a blocker. Capture or proposal-generation existence
+does not by itself establish answer exposure. Custodian overlap needs an explicit
+bound audit declaration; that declaration never waives an access restriction.
+The preflight does not invent a blanket conflict matrix for other shared role
+holders. Broader independence requirements still need an accountable approved policy.
+
+The registry retains its existing version-1 format: version and entries, plus an
+optional matching canonical exclusion_registry_id. Each entry has only game_id,
+liquipedia_match_id, layout_id, reason and source. The preflight rejects unexpected
+fields in both metadata inputs, including embedded payload values, and rejects
+duplicate JSON keys and unsupported schemas without echoing them. Original bytes
+are unchanged. Reports are new files within the private root and never overwrite.
+
+Exit 0 means metadata_checked, including when declared blockers remain. Read
+metadata_valid, metadata_requirements_satisfied, metadata_blockers and the separate
+capture/exposure/provenance counts. Metadata schema rejection exits 1. In every
+case empirical_admissibility_established, qualification_gate_enabled and
+automatic_acceptance_performed remain false. The report omits identifiers, actor
+details, payload values and local paths; its verification digest is deterministic,
+while run ID and execution time are separate.
+
+Metadata declarations and hashes do not authenticate human independence, establish
+source truth, or prove unrecorded access never occurred. Real source/reference
+verification, unresolved lineage resolution, numerical requirements, independent
+evaluation and explicit policy approval remain outstanding. Synthetic fixtures
+prove CLI and file-boundary mechanics only.
 
 ## Freeze before opening evaluation results
 

@@ -1,0 +1,28 @@
+{
+  "commitment_rule_version": "synthetic-lock-v1",
+  "data_origin": "synthetic",
+  "evidence_sha256": "a6c380b0f925db3e3525dd090a6bb1c572b96e55b36d1e5e56330eed8e86675f",
+  "frozen_at": "2020-01-01",
+  "games": [
+    {
+      "game_id": "synthetic-c1",
+      "layout_id": "synthetic-layout",
+      "match_id": "synthetic-c-match-1"
+    },
+    {
+      "game_id": "synthetic-c2",
+      "layout_id": "synthetic-layout",
+      "match_id": "synthetic-c-match-2"
+    },
+    {
+      "game_id": "synthetic-c3",
+      "layout_id": "synthetic-layout",
+      "match_id": "synthetic-c-match-3"
+    }
+  ],
+  "kind": "order_qualification_manifest",
+  "partition": "calibration",
+  "recognition_version": "synthetic-recognition-v1",
+  "schema_version": 1,
+  "version": "synthetic-c-v1"
+}

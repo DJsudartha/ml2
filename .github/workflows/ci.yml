@@ -75,6 +75,36 @@ jobs:
       - name: Lint
         run: ruff check backend tests .github/scripts
 
+  selector-isolation:
+    name: selector-isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pinned proof sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Pull synthetic proof runtime
+        run: docker pull python:3.12-slim
+
+      - name: Prove restricted selector and detect synthetic unsafe control
+        run: python -m backend.scripts.prove_selector_isolation prove --output "$RUNNER_TEMP/selector-isolation.json"
+
+      - name: Show synthetic proof report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/selector-isolation.json" ]; then
+            cat "$RUNNER_TEMP/selector-isolation.json"
+          fi
+
   docker:
     name: docker
     needs: [frontend, backend]

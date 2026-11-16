@@ -1,0 +1,23 @@
+{
+  "calibration_manifest_sha256": "8b08a77b27db8478b9b7ee7cc802528d77d651ef4e0f9afa149433ecc09ad3e2",
+  "commitment_rule_version": "synthetic-lock-v1",
+  "data_origin": "synthetic",
+  "evidence_sha256": "fb2953497a8f001d7c8a34c0743f5f622b12eae6780cd4b4d8313f0410cdc8b1",
+  "exclusion_registry_sha256": "73e4a9ca256ab48636dd5428f54c5818b70ffece45082583f16d0b9f17e4ac19",
+  "frozen_at": "2020-01-01",
+  "games": [
+    {
+      "game_id": "synthetic-e1",
+      "layout_id": "synthetic-layout",
+      "match_id": "synthetic-e-match-1"
+    }
+  ],
+  "kind": "order_qualification_manifest",
+  "partition": "qualification_evaluation",
+  "recognition_version": "synthetic-recognition-v1",
+  "requirements_sha256": "3dc5c75823b9df42218c79fb2a0941c92fcde24edcc14a50817d8438537328fc",
+  "results_exposed_before_policy": false,
+  "schema_version": 1,
+  "untouched": true,
+  "version": "synthetic-e-v1"
+}

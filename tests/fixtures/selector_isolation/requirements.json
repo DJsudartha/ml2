@@ -1,0 +1,11 @@
+{
+  "kind": "order_qualification_requirements",
+  "minimum_calibration_qualified_games": 2,
+  "minimum_coverage": 0.5,
+  "minimum_evaluation_games": 1,
+  "minimum_evaluation_qualified_games": 1,
+  "minimum_order_precision": 1,
+  "policy_version": "synthetic-policy-v1",
+  "schema_version": 1,
+  "version": "synthetic-requirements-v1"
+}

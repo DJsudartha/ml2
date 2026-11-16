@@ -406,28 +406,97 @@ def replay(manifest_path, expected):
             "release_gate": {"enabled": not reasons and not failures, "reasons": sorted(set(reasons + failures))}}
 
 
+def scenario_preflight(manifest_path, expected):
+    root = resolve_path(manifest_path, strict=True).parent
+    manifest = read_json(manifest_path, expected)
+    header(manifest, "expert_scenario_preflight_manifest")
+    require(set(manifest) == {"schema_version", "kind", "version", "synthetic", "artifacts"})
+    require(type(manifest["synthetic"]) is bool)
+    refs = manifest["artifacts"]
+    require(isinstance(refs, dict) and set(refs) == {"charter", "scenarios"})
+    checked = {"manifest": expected}
+    charter = read_artifact(root, refs, "charter", checked)
+    header(charter, "organized_draft_expert_charter")
+    require(all(name in charter for name in
+                ("eligibility_source", "effective_disables_source", "expert_signoff_record")),
+            "evidence_binding_missing")
+    require(set(charter) == {"schema_version", "kind", "version", "patch", "ruleset",
+                             "eligibility_source", "effective_disables_source", "expert_signoff_record"},
+            "charter_invalid")
+    require(text(charter["patch"]).strip(), "charter_invalid")
+    require(text(charter["ruleset"]).strip(), "charter_invalid")
+    for name in ("eligibility_source", "effective_disables_source", "expert_signoff_record"):
+        reference = charter[name]
+        require(isinstance(reference, dict) and set(reference) == {"record_id", "sha256"},
+                "evidence_binding_missing")
+        require(text(reference["record_id"]).strip(), "evidence_binding_missing")
+        require(is_hash(reference["sha256"]), "evidence_binding_missing")
+    scenarios = read_artifact(root, refs, "scenarios", checked)
+    header(scenarios, "authored_draft_scenario_set")
+    require(set(scenarios) == {"schema_version", "kind", "version", "scenario_type", "charter_sha256", "scenarios"},
+            "scenario_schema_unsupported")
+    expected_type = "synthetic_software_fixture" if manifest["synthetic"] else "expert_authored_nonhistorical"
+    require(scenarios["scenario_type"] == expected_type, "scenario_type_mismatch")
+    require(scenarios["charter_sha256"] == checked["charter"], "charter_lineage_mismatch")
+    require(isinstance(scenarios["scenarios"], list) and scenarios["scenarios"], "scenario_identity_invalid")
+    identities, authors, families = set(), set(), {}
+    same_author, unknown_author = 0, 0
+    for row in scenarios["scenarios"]:
+        require(isinstance(row, dict) and set(row) == {
+            "scenario_id", "author_id", "base_family_id", "split", "judgment_author_id"},
+            "scenario_schema_unsupported")
+        scenario_id, author_id, family_id = (text(row[key]) for key in
+                                              ("scenario_id", "author_id", "base_family_id"))
+        require(scenario_id not in identities, "scenario_identity_invalid")
+        identities.add(scenario_id)
+        authors.add(author_id)
+        require(row["split"] in ("development", "locked_evaluation"), "scenario_split_invalid")
+        require(families.get(family_id, row["split"]) == row["split"], "family_split_leakage")
+        families[family_id] = row["split"]
+        judge = row["judgment_author_id"]
+        if judge is None:
+            unknown_author += 1
+        else:
+            text(judge)
+            same_author += int(judge == author_id)
+    return {
+        "kind": "expert_scenario_preflight_report", "status": "validated", "lineage": checked,
+        "synthetic": manifest["synthetic"], "charter_version": charter["version"],
+        "scenario_set_version": scenarios["version"], "scenario_type": expected_type,
+        "counts": {"scenarios": len(identities), "base_families": len(families), "authors": len(authors),
+                   "same_author_judgments": same_author, "undeclared_judgment_authors": unknown_author},
+        "dependence": {"same_author_judgments_permitted": True, "family_split_disjoint": True,
+                       "evaluation_unit": "unresolved_scenario_family_policy", "author_effects": "not_evaluated"},
+        "metadata_validated": True, "source_evidence_bytes_checked": False, "evaluation_performed": False,
+        "activation": "not_attempted", "release_gate": {"enabled": False, "reasons":
+            ["scenario_evaluation_policy_unresolved"] + (["synthetic_evidence"] if manifest["synthetic"] else [])},
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--output", required=True, help="New report path relative to the private manifest directory")
+    parser.add_argument("--preflight", action="store_true", help="Validate charter/scenario metadata without evaluation")
     args = parser.parse_args()
-    run = {"run_id": str(uuid.uuid4()), "entry_point": "cli_replay",
+    run = {"run_id": str(uuid.uuid4()), "entry_point": "cli_scenario_preflight" if args.preflight else "cli_replay",
            "started_at": datetime.now(timezone.utc).isoformat()}
     manifest_path = None
     try:
         manifest_path = resolve_path(args.manifest, strict=True)
-        verification = replay(manifest_path, args.manifest_sha256)
+        verification = (scenario_preflight if args.preflight else replay)(manifest_path, args.manifest_sha256)
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError, OverflowError, RecursionError) as exc:
         code = str(exc) if isinstance(exc, InvalidInput) else "input_unavailable"
-        verification = {"kind": "recommendation_quality_policy_report", "status": "rejected",
+        verification = {"kind": "expert_scenario_preflight_report" if args.preflight else "recommendation_quality_policy_report",
+                        "status": "rejected",
                         "release_gate": {"enabled": False, "reasons": [code]},
                         "failure": {"code": code, "action": FAILURE_ACTION}, "activation": "not_attempted"}
     if manifest_path is None:
         print(json.dumps({"status": "rejected", "run_id": run["run_id"], "failure": verification["failure"]}))
         return 1
     encoded = json.dumps(verification, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    report = {"schema_version": 1, "event": "draft_quality_policy_replay", "run": run,
+    report = {"schema_version": 1, "event": "draft_quality_scenario_preflight" if args.preflight else "draft_quality_policy_replay", "run": run,
               "verification": verification, "verification_sha256": digest(encoded)}
     try:
         output = local_path(manifest_path.parent, args.output)

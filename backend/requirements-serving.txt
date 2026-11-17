@@ -2,7 +2,7 @@
 # Keep versions aligned with backend/requirements.txt. Training/refresh installs
 # continue to use that broader manifest.
 fastapi==0.135.2
-uvicorn==0.42.0
+uvicorn==0.54.0
 pydantic==2.12.5
 numpy==2.1.0
 pandas==3.0.2

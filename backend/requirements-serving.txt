@@ -4,7 +4,7 @@
 fastapi==0.135.2
 uvicorn==0.42.0
 pydantic==2.12.5
-numpy==2.1.0
+numpy==2.5.4
 pandas==3.0.2
 scikit-learn==1.8.0
 # Same xgboost module/version required by the legacy simulation import;

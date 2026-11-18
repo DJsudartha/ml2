@@ -1,0 +1,207 @@
+{
+  "games": [
+    {
+      "capture_status": "complete",
+      "commitment_evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "commitment_rule_version": "synthetic-lock-v1",
+      "commitment_status": "verified",
+      "game_id": "synthetic-c1",
+      "identities_complete": true,
+      "proposal_batches": [
+        [
+          "A"
+        ],
+        [
+          "B",
+          "C"
+        ],
+        [
+          "D",
+          "E"
+        ],
+        [
+          "F"
+        ],
+        [
+          "G"
+        ],
+        [
+          "H",
+          "I"
+        ],
+        [
+          "J"
+        ]
+      ],
+      "recognition_min_score": 0.9,
+      "reference": {
+        "batches": [
+          [
+            "A"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "D",
+            "E"
+          ],
+          [
+            "F"
+          ],
+          [
+            "G"
+          ],
+          [
+            "H",
+            "I"
+          ],
+          [
+            "J"
+          ]
+        ],
+        "machine_answers_shown": false,
+        "provenance": "independent_blind",
+        "reviewed": true
+      },
+      "usable_evidence": true
+    },
+    {
+      "capture_status": "complete",
+      "commitment_evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "commitment_rule_version": "synthetic-lock-v1",
+      "commitment_status": "verified",
+      "game_id": "synthetic-c2",
+      "identities_complete": true,
+      "proposal_batches": [
+        [
+          "A"
+        ],
+        [
+          "B",
+          "C"
+        ],
+        [
+          "D",
+          "E"
+        ],
+        [
+          "F"
+        ],
+        [
+          "G"
+        ],
+        [
+          "H",
+          "I"
+        ],
+        [
+          "J"
+        ]
+      ],
+      "recognition_min_score": 0.8,
+      "reference": {
+        "batches": [
+          [
+            "A"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "D",
+            "E"
+          ],
+          [
+            "F"
+          ],
+          [
+            "G"
+          ],
+          [
+            "H",
+            "I"
+          ],
+          [
+            "J"
+          ]
+        ],
+        "machine_answers_shown": false,
+        "provenance": "independent_blind",
+        "reviewed": true
+      },
+      "usable_evidence": true
+    },
+    {
+      "capture_status": "complete",
+      "commitment_evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "commitment_rule_version": "synthetic-lock-v1",
+      "commitment_status": "verified",
+      "game_id": "synthetic-c3",
+      "identities_complete": true,
+      "proposal_batches": [
+        [
+          "F"
+        ],
+        [
+          "B",
+          "C"
+        ],
+        [
+          "D",
+          "E"
+        ],
+        [
+          "A"
+        ],
+        [
+          "G"
+        ],
+        [
+          "H",
+          "I"
+        ],
+        [
+          "J"
+        ]
+      ],
+      "recognition_min_score": 0.7,
+      "reference": {
+        "batches": [
+          [
+            "A"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "D",
+            "E"
+          ],
+          [
+            "F"
+          ],
+          [
+            "G"
+          ],
+          [
+            "H",
+            "I"
+          ],
+          [
+            "J"
+          ]
+        ],
+        "machine_answers_shown": false,
+        "provenance": "independent_blind",
+        "reviewed": true
+      },
+      "usable_evidence": true
+    }
+  ],
+  "kind": "order_qualification_evidence",
+  "schema_version": 1
+}

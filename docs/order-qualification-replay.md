@@ -9,6 +9,51 @@ until the private inputs below are supplied. No real calibration threshold, samp
 requirement or approval is supplied by this change. The public tests use explicitly
 synthetic games and illustrative numbers; those numbers are not recommended defaults.
 
+## Synthetic selector execution-isolation proof
+
+The separate Linux `selector-isolation` CI job runs this bounded software check:
+
+```bash
+docker pull python:3.12-slim
+python -m backend.scripts.prove_selector_isolation prove --output /existing/output-directory/selector-isolation.json
+```
+
+The output must be a new file. There is no real-data input option. The launcher
+stages an explicit source allowlist and the committed, explicitly synthetic fixtures
+from the current Git revision. It mounts only that code and five calibration/input
+documents, including the evaluation identity manifest and its evidence hash. It
+does not mount evaluation predictions/references, the checkout, private directories,
+credentials or a Docker socket. Neither the production Dockerfile nor serving is used.
+
+The resolved image ID is used for both containers. The launcher inspects the actual
+container configuration before execution: UID/GID 65534, no network or IPC, no added
+capabilities, no-new-privileges, read-only root/code/inputs, 128 MiB memory, one CPU,
+32 processes, limited open files/file sizes, 60-second execution timeout, and bounded
+temporary filesystems (16 MiB `/tmp`, 4 MiB `/output`). No host write directory is
+mounted. The observer reads and hashes an allowed calibration file, attempts an
+actual read of the excluded synthetic held-out canary, checks read-only input/code
+access and absence of a Docker socket, then runs the existing public `calibrate`
+command inside that same container. Calibration outputs stay in its bounded tmpfs.
+
+A second, test-only unsafe control adds exactly one read-only mount containing the
+synthetic held-out predictions and references. The same observer must detect that
+canary's exact hash and stop before selection. This control never exposes private
+material or relaxes the other container restrictions.
+
+The JSON proof binds the Git revision, exact staged source/input/canary hashes,
+selector command, generated policy hash, resolved image ID/digests, Docker versions,
+inspected isolation configuration and both observations. CI prints this synthetic
+report even on a failing proof. Missing Linux/Docker/image support, a readable canary
+in the restricted container, a failed selector, or an undetected unsafe control
+returns nonzero with `NOT_PROVEN`; there is no successful local skip. A standalone
+`observe` command supplies observations only and cannot report an isolation `PASS`.
+
+This is evidence for the recorded synthetic execution boundary, not a hostile-kernel
+or hostile-Docker-daemon sandbox claim. Local host tests do not establish Linux
+isolation. Until the actual CI job succeeds, the Linux proof remains **NOT_PROVEN**.
+Even a proof `PASS` leaves real-data admissibility, untouched reference independence,
+policy approval, and numerical calibration unmet; qualification stays disabled.
+
 ## Metadata-only preflight
 
 Before assembling calibration or evaluation payloads, the separate preflight accepts

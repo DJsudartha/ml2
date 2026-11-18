@@ -1,0 +1,12 @@
+{
+  "entries": [
+    {
+      "game_id": "synthetic-unused",
+      "layout_id": "synthetic-layout",
+      "liquipedia_match_id": "synthetic-unused-match",
+      "reason": "development",
+      "source": "synthetic"
+    }
+  ],
+  "version": 1
+}

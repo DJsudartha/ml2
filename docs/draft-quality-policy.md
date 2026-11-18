@@ -96,6 +96,57 @@ benchmark and policy-approval acceptance criteria.
 
 ## Frozen artifacts and trust
 
+### Declared nonhistorical charter form
+
+The same `--preflight` seam also accepts a charter of kind
+`declared_nonhistorical_expert_charter` (schema version 1). This additive form keeps
+the original charter and historical replay contracts unchanged. Its exact fields are
+`schema_version`, `kind`, `version`, `patch`, `ruleset`, `declaration`, and
+`expert_signoff`. The last two fields use local relative `path`/`sha256` artifact
+bindings; `expert_signoff` may be null. Hashes are checked before decoding, and the
+same size, parser, private-path and exclusive-output controls apply.
+
+The declaration is a `nonhistorical_benchmark_declaration` with exactly:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version`, `kind`, `version` | Versioned metadata header |
+| `patch`, `ruleset` | Must match the charter |
+| `source_authority` | `declared_notes_not_publisher_verified`; no publisher authentication claim |
+| `rules` | Nonempty list of explicit rule statements (each bounded as ordinary metadata text) |
+| `hero_universe` | Local artifact binding; kind `proposed_expert_scenario_hero_universe`, schema version 1, and a nonempty unique `proposed_allowed_heroes` list |
+| `benchmark_exclusions` | Unique explicit subset of that declared universe; expert design choices only |
+| `official_eligibility_status`, `official_disables_status` | Both `unknown`; the declaration cannot satisfy historical official-evidence requirements |
+| `acceptance_record` | Local hash-bound JSON object; preserves exact review provenance bytes without authenticating its author or interpreting it as final sign-off |
+| `source_records` | Nonempty list of opaque `record_id`/`sha256` source references, not opened or authenticated |
+| `historical_restriction_note` | Bounded text retained as context only; never a filter on this declared universe |
+
+The hero-universe artifact may retain its original proposal/provenance fields. Its
+list is a declared design scope, even after a reviewer accepts it; it does not become
+verified official eligibility. The report counts the full declared universe and the
+set remaining after explicit benchmark exclusions. A conditional professional ban
+note cannot remove heroes. Applying any historical competition restriction still
+requires evidence of the applicable rule, relevant hero addition/rework effective
+date, match date, and exact boundary semantics through the historical process.
+
+A null sign-off returns `status: pending` and `expert_signoff_missing` after checking
+the declaration, universe and acceptance bytes. Scenario bytes are not opened. No
+placeholder source or signature is needed. For a non-null sign-off, the local record
+has exactly `schema_version`, `kind: benchmark_declaration_signoff`, `version`,
+`status: signed`, `declaration_sha256`, `signer_id`, and the supplied `signed_on` day.
+Its declaration hash must match the exact checked declaration. That declaration
+transitively binds the rules, universe, exclusions, source references, and acceptance
+record. The sign-off targets declaration bytes rather than its containing charter,
+avoiding a circular self-hash. Any changed dependency requires a changed declaration
+hash and fresh sign-off. The scenario set still binds the complete charter bytes.
+
+This checks a sign-off declaration's structure and lineage, not cryptographic
+authenticity, reviewer identity, source truth or honest custody. Checked declaration
+artifact bytes are reported separately from unchecked source-evidence bytes. A signed
+synthetic example can validate metadata and family separation, but every declared
+preflight report retains a disabled release gate and performs no evaluation. Numerical
+policy, readiness and actual final expert sign-off remain separate prerequisites.
+
 A trusted SHA-256 supplied outside the manifest pins its exact UTF-8 bytes. Each referenced
 artifact has a relative `path` and exact-byte `sha256`. The command checks a hash before
 decoding its payload, bounds reads, rejects duplicate JSON keys and nonfinite numbers,

@@ -406,6 +406,58 @@ def replay(manifest_path, expected):
             "release_gate": {"enabled": not reasons and not failures, "reasons": sorted(set(reasons + failures))}}
 
 
+def declared_charter(root, charter, checked):
+    header(charter, "declared_nonhistorical_expert_charter")
+    require(set(charter) == {"schema_version", "kind", "version", "patch", "ruleset",
+                             "declaration", "expert_signoff"}, "charter_invalid")
+    require(text(charter["patch"]).strip() and text(charter["ruleset"]).strip(), "charter_invalid")
+    declaration = read_artifact(root, charter, "declaration", checked)
+    header(declaration, "nonhistorical_benchmark_declaration")
+    require(set(declaration) == {"schema_version", "kind", "version", "patch", "ruleset",
+                                "source_authority", "rules", "hero_universe", "benchmark_exclusions",
+                                "official_eligibility_status", "official_disables_status", "acceptance_record",
+                                "source_records", "historical_restriction_note"}, "declaration_invalid")
+    require(declaration["patch"] == charter["patch"] and declaration["ruleset"] == charter["ruleset"],
+            "declaration_lineage_mismatch")
+    require(declaration["source_authority"] == "declared_notes_not_publisher_verified"
+            and declaration["official_eligibility_status"] == "unknown"
+            and declaration["official_disables_status"] == "unknown", "declaration_authority_invalid")
+    require(isinstance(declaration["rules"], list) and declaration["rules"]
+            and all(text(rule).strip() for rule in declaration["rules"]), "declaration_invalid")
+    text(declaration["historical_restriction_note"])
+    sources = declaration["source_records"]
+    require(isinstance(sources, list) and sources, "evidence_binding_missing")
+    for reference in sources:
+        require(isinstance(reference, dict) and set(reference) == {"record_id", "sha256"}
+                and text(reference["record_id"]).strip() and is_hash(reference["sha256"]),
+                "evidence_binding_missing")
+    universe = read_artifact(root, declaration, "hero_universe", checked)
+    require(isinstance(universe, dict) and universe.get("kind") == "proposed_expert_scenario_hero_universe"
+            and type(universe.get("schema_version")) is int and universe["schema_version"] == 1,
+            "declared_universe_invalid")
+    heroes = universe.get("proposed_allowed_heroes")
+    require(isinstance(heroes, list) and heroes and all(text(hero).strip() for hero in heroes)
+            and len(set(heroes)) == len(heroes), "declared_universe_invalid")
+    excluded = declaration["benchmark_exclusions"]
+    require(isinstance(excluded, list) and all(text(hero).strip() for hero in excluded)
+            and len(set(excluded)) == len(excluded) and set(excluded) <= set(heroes), "declared_exclusions_invalid")
+    acceptance = read_artifact(root, declaration, "acceptance_record", checked)
+    require(isinstance(acceptance, dict), "acceptance_record_invalid")
+    if charter["expert_signoff"] is not None:
+        signoff = read_artifact(root, charter, "expert_signoff", checked)
+        header(signoff, "benchmark_declaration_signoff")
+        require(set(signoff) == {"schema_version", "kind", "version", "status", "declaration_sha256",
+                                "signer_id", "signed_on"} and signoff["status"] == "signed", "signoff_invalid")
+        require(signoff["declaration_sha256"] == checked["declaration"], "signoff_lineage_mismatch")
+        require(text(signoff["signer_id"]).strip(), "signoff_invalid")
+        day(signoff["signed_on"])
+    return {"charter_scope": "declared_nonhistorical", "declaration_artifact_bytes_checked": True,
+            "source_evidence_bytes_checked": False, "declared_universe_count": len(heroes),
+            "declared_available_count": len(heroes) - len(excluded),
+            "official_eligibility_status": "unknown", "official_disables_status": "unknown",
+            "historical_restriction_applied": False}
+
+
 def scenario_preflight(manifest_path, expected):
     root = resolve_path(manifest_path, strict=True).parent
     manifest = read_json(manifest_path, expected)
@@ -416,21 +468,31 @@ def scenario_preflight(manifest_path, expected):
     require(isinstance(refs, dict) and set(refs) == {"charter", "scenarios"})
     checked = {"manifest": expected}
     charter = read_artifact(root, refs, "charter", checked)
-    header(charter, "organized_draft_expert_charter")
-    require(all(name in charter for name in
+    declared = isinstance(charter, dict) and charter.get("kind") == "declared_nonhistorical_expert_charter"
+    declaration_metadata = declared_charter(root, charter, checked) if declared else {}
+    if declared and charter["expert_signoff"] is None:
+        return {"kind": "expert_scenario_preflight_report", "status": "pending", "lineage": checked,
+                "synthetic": manifest["synthetic"], "charter_version": charter["version"],
+                **declaration_metadata, "pending": ["expert_signoff_missing"], "scenario_bytes_checked": False,
+                "metadata_validated": False, "evaluation_performed": False, "activation": "not_attempted",
+                "release_gate": {"enabled": False, "reasons": ["expert_signoff_missing",
+                                                                    "scenario_evaluation_policy_unresolved"]}}
+    if not declared:
+        header(charter, "organized_draft_expert_charter")
+        require(all(name in charter for name in
                 ("eligibility_source", "effective_disables_source", "expert_signoff_record")),
             "evidence_binding_missing")
-    require(set(charter) == {"schema_version", "kind", "version", "patch", "ruleset",
+        require(set(charter) == {"schema_version", "kind", "version", "patch", "ruleset",
                              "eligibility_source", "effective_disables_source", "expert_signoff_record"},
             "charter_invalid")
-    require(text(charter["patch"]).strip(), "charter_invalid")
-    require(text(charter["ruleset"]).strip(), "charter_invalid")
-    for name in ("eligibility_source", "effective_disables_source", "expert_signoff_record"):
-        reference = charter[name]
-        require(isinstance(reference, dict) and set(reference) == {"record_id", "sha256"},
+        require(text(charter["patch"]).strip(), "charter_invalid")
+        require(text(charter["ruleset"]).strip(), "charter_invalid")
+        for name in ("eligibility_source", "effective_disables_source", "expert_signoff_record"):
+            reference = charter[name]
+            require(isinstance(reference, dict) and set(reference) == {"record_id", "sha256"},
                 "evidence_binding_missing")
-        require(text(reference["record_id"]).strip(), "evidence_binding_missing")
-        require(is_hash(reference["sha256"]), "evidence_binding_missing")
+            require(text(reference["record_id"]).strip(), "evidence_binding_missing")
+            require(is_hash(reference["sha256"]), "evidence_binding_missing")
     scenarios = read_artifact(root, refs, "scenarios", checked)
     header(scenarios, "authored_draft_scenario_set")
     require(set(scenarios) == {"schema_version", "kind", "version", "scenario_type", "charter_sha256", "scenarios"},
@@ -461,6 +523,7 @@ def scenario_preflight(manifest_path, expected):
             same_author += int(judge == author_id)
     return {
         "kind": "expert_scenario_preflight_report", "status": "validated", "lineage": checked,
+        **declaration_metadata,
         "synthetic": manifest["synthetic"], "charter_version": charter["version"],
         "scenario_set_version": scenarios["version"], "scenario_type": expected_type,
         "counts": {"scenarios": len(identities), "base_families": len(families), "authors": len(authors),

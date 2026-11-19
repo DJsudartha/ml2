@@ -102,6 +102,145 @@ def scenario_bundle(root):
     return manifest, charter, scenarios
 
 
+def declared_bundle(root):
+    manifest, _, scenarios = scenario_bundle(root)
+    universe = {"kind": "proposed_expert_scenario_hero_universe", "schema_version": 1,
+                "proposed_allowed_heroes": ["Alpha", "Beta"]}
+    declaration = {
+        "schema_version": 1, "kind": "nonhistorical_benchmark_declaration", "version": "synthetic-declaration-v1",
+        "patch": "synthetic-patch", "ruleset": "synthetic-rules-v1",
+        "source_authority": "declared_notes_not_publisher_verified",
+        "rules": ["Synthetic standard five-player map", "Synthetic parent plus update"],
+        "hero_universe": artifact(root, "universe.json", universe), "benchmark_exclusions": [],
+        "official_eligibility_status": "unknown", "official_disables_status": "unknown",
+        "acceptance_record": artifact(root, "acceptance.json", {"status": "synthetic_review_acceptance"}),
+        "source_records": [{"record_id": "synthetic-notes", "sha256": "1" * 64}],
+        "historical_restriction_note": "Conditional professional restriction; historical evidence required",
+    }
+    charter = {"schema_version": 1, "kind": "declared_nonhistorical_expert_charter",
+               "version": "synthetic-declared-charter-v1", "patch": "synthetic-patch",
+               "ruleset": "synthetic-rules-v1",
+               "declaration": artifact(root, "declaration.json", declaration), "expert_signoff": None}
+    manifest["artifacts"]["charter"] = artifact(root, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(root, "scenarios.json", scenarios)
+    return manifest, charter, declaration, scenarios
+
+
+def test_unsigned_declared_charter_is_pending_signoff_without_opening_scenarios(tmp_path):
+    manifest, _, _, _ = declared_bundle(tmp_path)
+    (tmp_path / "scenarios.json").write_bytes(b"PRIVATE_UNOPENED_SCENARIOS")
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+    verification = report["verification"]
+    assert verification["status"] == "pending"
+    assert verification["pending"] == ["expert_signoff_missing"]
+    assert verification["declared_universe_count"] == 2
+    assert verification["declared_available_count"] == 2
+    assert verification["scenario_bytes_checked"] is False
+    assert verification["release_gate"]["enabled"] is False
+    assert "PRIVATE_UNOPENED_SCENARIOS" not in json.dumps(report) + result.stdout + result.stderr
+
+
+def sign_declared(root, manifest, charter, scenarios, *, declaration_hash=None):
+    signoff = {"schema_version": 1, "kind": "benchmark_declaration_signoff", "version": "synthetic-signoff-v1",
+               "status": "signed", "declaration_sha256": declaration_hash or charter["declaration"]["sha256"],
+               "signer_id": "synthetic-expert", "signed_on": "2000-01-01"}
+    charter["expert_signoff"] = artifact(root, "signoff.json", signoff)
+    manifest["artifacts"]["charter"] = artifact(root, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(root, "scenarios.json", scenarios)
+
+
+def test_declared_charter_rejects_signoff_for_other_declaration_without_payload_leak(tmp_path):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    sign_declared(tmp_path, manifest, charter, scenarios, declaration_hash="0" * 64)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "signoff_lineage_mismatch"
+    assert report["verification"]["release_gate"]["enabled"] is False
+    assert "synthetic-expert" not in json.dumps(report) + result.stdout + result.stderr
+
+
+def test_signed_synthetic_declaration_validates_metadata_but_not_real_readiness(tmp_path):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    sign_declared(tmp_path, manifest, charter, scenarios)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+    verification = report["verification"]
+    assert verification["status"] == "validated"
+    assert verification["charter_scope"] == "declared_nonhistorical"
+    assert verification["declaration_artifact_bytes_checked"] is True
+    assert verification["source_evidence_bytes_checked"] is False
+    assert verification["counts"]["scenarios"] == 2
+    assert verification["official_disables_status"] == "unknown"
+    assert verification["release_gate"]["enabled"] is False
+    assert verification["evaluation_performed"] is False
+    assert "synthetic-expert" not in json.dumps(report) + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("changed", ["rules", "hero_universe", "benchmark_exclusions", "acceptance_record"])
+def test_changing_any_signed_declaration_content_requires_a_new_signoff(tmp_path, changed):
+    manifest, charter, declaration, scenarios = declared_bundle(tmp_path)
+    sign_declared(tmp_path, manifest, charter, scenarios)
+    if changed == "rules":
+        declaration["rules"] = ["Different synthetic map"]
+    elif changed == "benchmark_exclusions":
+        declaration["benchmark_exclusions"] = ["Beta"]
+    elif changed == "hero_universe":
+        declaration[changed] = artifact(tmp_path, "universe.json", {
+            "kind": "proposed_expert_scenario_hero_universe", "schema_version": 1,
+            "proposed_allowed_heroes": ["Alpha", "Gamma"]})
+    else:
+        declaration[changed] = artifact(tmp_path, "acceptance.json", {"status": "different_acceptance"})
+    charter["declaration"] = artifact(tmp_path, "declaration.json", declaration)
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "signoff_lineage_mismatch"
+
+
+@pytest.mark.parametrize("name", ["declaration.json", "universe.json", "acceptance.json", "signoff.json"])
+def test_declared_binding_tampering_is_rejected_before_decoding(tmp_path, name):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    sign_declared(tmp_path, manifest, charter, scenarios)
+    (tmp_path / name).write_bytes(b"PRIVATE_TAMPERED_DECLARATION")
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "input_integrity_mismatch"
+    visible = json.dumps(report) + result.stdout + result.stderr
+    assert "PRIVATE_TAMPERED_DECLARATION" not in visible
+    assert str(tmp_path) not in visible
+    assert "Traceback" not in visible
+
+
+def test_historical_restriction_note_is_inert_in_declared_pool(tmp_path):
+    manifest, charter, declaration, _ = declared_bundle(tmp_path)
+    declaration["historical_restriction_note"] = "Beta addition has a possible two-week professional restriction"
+    charter["declaration"] = artifact(tmp_path, "declaration.json", declaration)
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 0
+    verification = report["verification"]
+    assert verification["historical_restriction_applied"] is False
+    assert verification["declared_universe_count"] == verification["declared_available_count"] == 2
+
+
+def test_declared_exclusions_do_not_supply_legacy_official_disable_binding(tmp_path):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    charter = {"schema_version": 1, "kind": "organized_draft_expert_charter", "version": "synthetic-legacy-v1",
+               "patch": "synthetic-patch", "ruleset": "synthetic-rules-v1",
+               "eligibility_source": {"record_id": "synthetic", "sha256": "1" * 64},
+               "effective_disables_source": None,
+               "expert_signoff_record": {"record_id": "synthetic", "sha256": "2" * 64}}
+    manifest["artifacts"]["charter"] = artifact(tmp_path, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(tmp_path, "scenarios.json", scenarios)
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "evidence_binding_missing"
+
+
 def test_public_scenario_preflight_reports_family_dependence_without_release_readiness(tmp_path):
     manifest, _, _ = scenario_bundle(tmp_path)
     artifact(tmp_path, "manifest.json", manifest)

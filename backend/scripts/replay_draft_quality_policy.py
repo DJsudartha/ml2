@@ -406,6 +406,58 @@ def replay(manifest_path, expected):
             "release_gate": {"enabled": not reasons and not failures, "reasons": sorted(set(reasons + failures))}}
 
 
+def relayed_verbal_signoff(root, signoff, charter, checked):
+    header(signoff, "benchmark_declaration_relayed_verbal_signoff")
+    require(set(signoff) == {"schema_version", "kind", "version", "scope", "unsigned_charter",
+                             "approval_attestation", "approved_statement_sha256"}, "signoff_invalid")
+    require(signoff["scope"] == "declared_nonhistorical_benchmark_only", "signoff_scope_invalid")
+    unsigned = read_artifact(root, signoff, "unsigned_charter", checked)
+    require(unsigned == {**charter, "expert_signoff": None}, "signoff_lineage_mismatch")
+    approval = read_artifact(root, signoff, "approval_attestation", checked)
+    require(isinstance(approval, dict) and approval.get("schema_version") == 1
+            and type(approval["schema_version"]) is int
+            and approval.get("kind") == "user_relayed_final_verbal_benchmark_approval"
+            and approval.get("approval_status") == "final_verbal_approval_user_relayed", "signoff_invalid")
+    required = {"expert_id", "approved_statement_verbatim", "approved_statement_sha256", "relay_source",
+                "direct_expert_contact", "independent_identity_authentication", "cryptographic_signature",
+                "verbal_signoff_at", "verbal_signoff_day", "recorded_at", "recorded_timezone",
+                "source_package_receipt_sha256", "unsigned_charter_sha256", "approved_declaration_sha256",
+                "unchanged_hero_universe_sha256", "numerical_policy_approved", "activation_authorized"}
+    require(required <= set(approval), "signoff_incomplete")
+    require(text(approval["expert_id"]).strip()
+            and approval["relay_source"] == "user_instruction_in_current_chat", "signoff_provenance_invalid")
+    require(all(approval[key] is False for key in ("direct_expert_contact", "independent_identity_authentication",
+                                                 "cryptographic_signature")), "signoff_provenance_invalid")
+    require(approval["numerical_policy_approved"] is False and approval["activation_authorized"] is False,
+            "signoff_scope_invalid")
+    require(approval["verbal_signoff_at"] is None and approval["verbal_signoff_day"] is None,
+            "signoff_event_time_invalid")
+    require(text(approval["recorded_timezone"]).strip(), "signoff_recording_time_invalid")
+    recorded = approval["recorded_at"]
+    require(isinstance(recorded, str) and re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})", recorded),
+        "signoff_recording_time_invalid")
+    try:
+        require(datetime.fromisoformat(recorded).utcoffset() is not None, "signoff_recording_time_invalid")
+    except ValueError as exc:
+        raise InvalidInput("signoff_recording_time_invalid") from exc
+    statement = approval["approved_statement_verbatim"]
+    require(isinstance(statement, str) and len(statement) <= 10000
+            and checked["declaration"] in statement
+            and "nonhistorical organized five-player benchmark" in statement,
+            "signoff_content_invalid")
+    statement_hash = digest(statement.encode("utf-8"))
+    require(is_hash(signoff["approved_statement_sha256"])
+            and statement_hash == signoff["approved_statement_sha256"] == approval["approved_statement_sha256"],
+            "signoff_content_mismatch")
+    require(is_hash(approval["source_package_receipt_sha256"]), "signoff_lineage_mismatch")
+    require(approval["unsigned_charter_sha256"] == checked["unsigned_charter"]
+            and approval["approved_declaration_sha256"] == checked["declaration"]
+            and approval["unchanged_hero_universe_sha256"] == checked["hero_universe"], "signoff_lineage_mismatch")
+    return {"approval_method": "user_relayed_final_verbal", "approval_structurally_validated": True,
+            "approval_identity_authenticated": False, "approval_event_time_known": False}
+
+
 def declared_charter(root, charter, checked):
     header(charter, "declared_nonhistorical_expert_charter")
     require(set(charter) == {"schema_version", "kind", "version", "patch", "ruleset",
@@ -443,19 +495,37 @@ def declared_charter(root, charter, checked):
             and len(set(excluded)) == len(excluded) and set(excluded) <= set(heroes), "declared_exclusions_invalid")
     acceptance = read_artifact(root, declaration, "acceptance_record", checked)
     require(isinstance(acceptance, dict), "acceptance_record_invalid")
+    approval_metadata = {"approval_structurally_validated": False}
     if charter["expert_signoff"] is not None:
         signoff = read_artifact(root, charter, "expert_signoff", checked)
-        header(signoff, "benchmark_declaration_signoff")
-        require(set(signoff) == {"schema_version", "kind", "version", "status", "declaration_sha256",
+        if isinstance(signoff, dict) and signoff.get("kind") == "benchmark_declaration_relayed_verbal_signoff":
+            approval_metadata = relayed_verbal_signoff(root, signoff, charter, checked)
+        else:
+            header(signoff, "benchmark_declaration_signoff")
+            require(set(signoff) == {"schema_version", "kind", "version", "status", "declaration_sha256",
                                 "signer_id", "signed_on"} and signoff["status"] == "signed", "signoff_invalid")
-        require(signoff["declaration_sha256"] == checked["declaration"], "signoff_lineage_mismatch")
-        require(text(signoff["signer_id"]).strip(), "signoff_invalid")
-        day(signoff["signed_on"])
-    return {"charter_scope": "declared_nonhistorical", "declaration_artifact_bytes_checked": True,
+            require(signoff["declaration_sha256"] == checked["declaration"], "signoff_lineage_mismatch")
+            require(text(signoff["signer_id"]).strip(), "signoff_invalid")
+            day(signoff["signed_on"])
+            approval_metadata = {"approval_method": "dated_declaration_signoff",
+                                 "approval_structurally_validated": True, "approval_identity_authenticated": False}
+    return {**approval_metadata, "charter_scope": "declared_nonhistorical", "declaration_artifact_bytes_checked": True,
             "source_evidence_bytes_checked": False, "declared_universe_count": len(heroes),
             "declared_available_count": len(heroes) - len(excluded),
             "official_eligibility_status": "unknown", "official_disables_status": "unknown",
             "historical_restriction_applied": False}
+
+
+def charter_preflight(charter_path, expected):
+    checked = {"charter": expected}
+    charter = read_json(charter_path, expected)
+    metadata = declared_charter(charter_path.parent, charter, checked)
+    pending = ["expert_signoff_missing"] if charter["expert_signoff"] is None else []
+    return {"kind": "declared_charter_preflight_report", "status": "pending" if pending else "validated",
+            "lineage": checked, **metadata, "pending": pending, "charter_version": charter["version"],
+            "scenario_bytes_checked": False, "scenario_preflight_performed": False, "evaluation_performed": False,
+            "activation": "not_attempted", "release_gate": {"enabled": False, "reasons": pending +
+                ["scenario_preflight_not_performed", "scenario_evaluation_policy_unresolved"]}}
 
 
 def scenario_preflight(manifest_path, expected):
@@ -538,20 +608,29 @@ def scenario_preflight(manifest_path, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--manifest-sha256", required=True)
-    parser.add_argument("--output", required=True, help="New report path relative to the private manifest directory")
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--manifest", type=Path)
+    inputs.add_argument("--charter", type=Path, help="Check only a declared charter, without scenario inputs")
+    parser.add_argument("--manifest-sha256")
+    parser.add_argument("--charter-sha256")
+    parser.add_argument("--output", required=True, help="New report path relative to the private input directory")
     parser.add_argument("--preflight", action="store_true", help="Validate charter/scenario metadata without evaluation")
     args = parser.parse_args()
-    run = {"run_id": str(uuid.uuid4()), "entry_point": "cli_scenario_preflight" if args.preflight else "cli_replay",
+    if (args.charter and (not args.charter_sha256 or args.manifest_sha256 or args.preflight)
+            or args.manifest and (not args.manifest_sha256 or args.charter_sha256)):
+        parser.error("Supply only the matching input hash; --charter is a separate metadata-only mode.")
+    run = {"run_id": str(uuid.uuid4()), "entry_point": "cli_charter_preflight" if args.charter else
+           "cli_scenario_preflight" if args.preflight else "cli_replay",
            "started_at": datetime.now(timezone.utc).isoformat()}
     manifest_path = None
     try:
-        manifest_path = resolve_path(args.manifest, strict=True)
-        verification = (scenario_preflight if args.preflight else replay)(manifest_path, args.manifest_sha256)
+        manifest_path = resolve_path(args.charter or args.manifest, strict=True)
+        verification = (charter_preflight(manifest_path, args.charter_sha256) if args.charter else
+                        (scenario_preflight if args.preflight else replay)(manifest_path, args.manifest_sha256))
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError, OverflowError, RecursionError) as exc:
         code = str(exc) if isinstance(exc, InvalidInput) else "input_unavailable"
-        verification = {"kind": "expert_scenario_preflight_report" if args.preflight else "recommendation_quality_policy_report",
+        verification = {"kind": "declared_charter_preflight_report" if args.charter else
+                        "expert_scenario_preflight_report" if args.preflight else "recommendation_quality_policy_report",
                         "status": "rejected",
                         "release_gate": {"enabled": False, "reasons": [code]},
                         "failure": {"code": code, "action": FAILURE_ACTION}, "activation": "not_attempted"}
@@ -559,7 +638,8 @@ def main():
         print(json.dumps({"status": "rejected", "run_id": run["run_id"], "failure": verification["failure"]}))
         return 1
     encoded = json.dumps(verification, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    report = {"schema_version": 1, "event": "draft_quality_scenario_preflight" if args.preflight else "draft_quality_policy_replay", "run": run,
+    report = {"schema_version": 1, "event": "draft_quality_charter_preflight" if args.charter else
+              "draft_quality_scenario_preflight" if args.preflight else "draft_quality_policy_replay", "run": run,
               "verification": verification, "verification_sha256": digest(encoded)}
     try:
         output = local_path(manifest_path.parent, args.output)

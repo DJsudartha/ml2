@@ -147,6 +147,64 @@ synthetic example can validate metadata and family separation, but every declare
 preflight report retains a disabled release gate and performs no evaluation. Numerical
 policy, readiness and actual final expert sign-off remain separate prerequisites.
 
+#### User-relayed verbal approval
+
+A declared charter may instead bind a `benchmark_declaration_relayed_verbal_signoff`
+record (schema version 1). Its exact fields are `schema_version`, `kind`, `version`,
+`scope: declared_nonhistorical_benchmark_only`, `unsigned_charter`,
+`approval_attestation`, and `approved_statement_sha256`. The two artifact references
+use local `path`/`sha256` bindings. The unsigned charter must equal the supplied
+charter with only `expert_signoff` replaced by null, preserving its version,
+declaration and ruleset. This separate form does not relax the dated sign-off form:
+`benchmark_declaration_signoff` still requires its actual `signed_on` day.
+
+The attestation must be a JSON object with integer `schema_version: 1`,
+`kind: user_relayed_final_verbal_benchmark_approval`, and
+`approval_status: final_verbal_approval_user_relayed`. It must contain:
+
+| Field | Structural requirement |
+| --- | --- |
+| `expert_id` | Nonblank declared identity; not authenticated |
+| `relay_source` | `user_instruction_in_current_chat`; not direct expert contact |
+| `direct_expert_contact`, `independent_identity_authentication`, `cryptographic_signature` | Each explicitly false |
+| `verbal_signoff_at`, `verbal_signoff_day` | Each explicitly null; the event time and date are unknown |
+| `recorded_at`, `recorded_timezone` | An actual ISO recording timestamp with seconds and UTC offset, plus a nonblank supplied timezone label; neither supplies an event date |
+| `approved_statement_verbatim` | Exact supplied statement, at most 10,000 characters, containing the bound declaration hash and the scope phrase `nonhistorical organized five-player benchmark` |
+| `approved_statement_sha256` | Exact UTF-8 statement hash; must equal the independently bound sign-off record's hash |
+| `unsigned_charter_sha256`, `approved_declaration_sha256`, `unchanged_hero_universe_sha256` | Must match the artifact bytes checked by this run |
+| `source_package_receipt_sha256` | Valid SHA-256 provenance reference; receipt/source truth is not authenticated by this check |
+| `numerical_policy_approved`, `activation_authorized` | Each explicitly false |
+
+Additional attestation audit fields are retained without interpreting them as
+approval. The enclosing artifact hash pins all of those bytes. The statement hash,
+textual scope markers and structured scope declarations are consistency checks;
+they cannot decide whether a person actually uttered the statement or verify its
+natural-language meaning. Recording a relay never claims an authenticated identity,
+cryptographic signature, official source verification, or release permission.
+
+#### Charter-only metadata command
+
+When no scenario manifest or set exists, use the same public runner's charter-only
+mode instead of constructing placeholder scenarios:
+
+```powershell
+python -m backend.scripts.replay_draft_quality_policy --charter private/draft-quality/charter.json --charter-sha256 <trusted-charter-sha256> --output charter-report-001.json
+```
+
+`--charter` is mutually exclusive with `--manifest` and `--preflight`; supply only its
+matching hash argument. Output remains a new private path relative to the charter
+directory, with the same confinement, parser and redaction controls. The report kind
+is `declared_charter_preflight_report`. An unsigned charter is `pending`; a checked
+approval can be `validated`. Relayed approval reports
+`approval_method: user_relayed_final_verbal`, `approval_structurally_validated: true`,
+`approval_identity_authenticated: false`, and `approval_event_time_known: false`.
+No identity, statement, recording timestamp or relay text appears in the report.
+
+Charter-only success reports `scenario_preflight_performed: false`,
+`scenario_bytes_checked: false`, `evaluation_performed: false`, and a disabled release
+gate. It does not create missing scenarios or satisfy full scenario preflight. The
+existing scenario command still requires its genuine manifest and scenario set.
+
 A trusted SHA-256 supplied outside the manifest pins its exact UTF-8 bytes. Each referenced
 artifact has a relative `path` and exact-byte `sha256`. The command checks a hash before
 decoding its payload, bounds reads, rejects duplicate JSON keys and nonfinite numbers,

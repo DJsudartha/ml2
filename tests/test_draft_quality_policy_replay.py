@@ -152,6 +152,192 @@ def sign_declared(root, manifest, charter, scenarios, *, declaration_hash=None):
     manifest["artifacts"]["scenarios"] = artifact(root, "scenarios.json", scenarios)
 
 
+def relay_declared(root, manifest, charter, scenarios):
+    unsigned = artifact(root, "unsigned.json", charter)
+    declaration = json.loads((root / "declaration.json").read_text())
+    statement = ("Synthetic approval of declaration " + charter["declaration"]["sha256"]
+                 + " for a nonhistorical organized five-player benchmark; no numerical policy or activation approval.")
+    statement_hash = hashlib.sha256(statement.encode("utf-8")).hexdigest()
+    attestation = {
+        "schema_version": 1, "kind": "user_relayed_final_verbal_benchmark_approval",
+        "expert_id": "synthetic-expert", "approval_status": "final_verbal_approval_user_relayed",
+        "approved_statement_verbatim": statement, "approved_statement_sha256": statement_hash,
+        "relay_source": "user_instruction_in_current_chat", "direct_expert_contact": False,
+        "independent_identity_authentication": False, "cryptographic_signature": False,
+        "verbal_signoff_at": None, "verbal_signoff_day": None,
+        "recorded_at": "2000-02-03T04:05:06+08:00", "recorded_timezone": "Synthetic/Zone",
+        "source_package_receipt_sha256": "3" * 64, "unsigned_charter_sha256": unsigned["sha256"],
+        "approved_declaration_sha256": charter["declaration"]["sha256"],
+        "unchanged_hero_universe_sha256": declaration["hero_universe"]["sha256"],
+        "numerical_policy_approved": False, "activation_authorized": False,
+    }
+    signoff = {
+        "schema_version": 1, "kind": "benchmark_declaration_relayed_verbal_signoff", "version": "synthetic-relay-v1",
+        "scope": "declared_nonhistorical_benchmark_only", "unsigned_charter": unsigned,
+        "approval_attestation": artifact(root, "attestation.json", attestation),
+        "approved_statement_sha256": statement_hash,
+    }
+    charter["expert_signoff"] = artifact(root, "signoff.json", signoff)
+    manifest["artifacts"]["charter"] = artifact(root, "charter.json", charter)
+    scenarios["charter_sha256"] = manifest["artifacts"]["charter"]["sha256"]
+    manifest["artifacts"]["scenarios"] = artifact(root, "scenarios.json", scenarios)
+    return signoff, attestation
+
+
+def run_charter(root, charter):
+    charter_ref = artifact(root, "charter.json", charter)
+    result = subprocess.run(
+        [sys.executable, "-m", "backend.scripts.replay_draft_quality_policy",
+         "--charter", str(root / "charter.json"), "--charter-sha256", charter_ref["sha256"],
+         "--output", "report.json"], cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    report_path = root / "report.json"
+    return result, json.loads(report_path.read_text()) if report_path.exists() else None
+
+
+def test_charter_only_validates_relayed_verbal_approval_with_unknown_event_date(tmp_path):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    relay_declared(tmp_path, manifest, charter, scenarios)
+    (tmp_path / "scenarios.json").unlink()
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 0, result.stderr or result.stdout
+    verification = report["verification"]
+    assert verification["status"] == "validated"
+    assert verification["approval_method"] == "user_relayed_final_verbal"
+    assert verification["approval_structurally_validated"] is True
+    assert verification["approval_identity_authenticated"] is False
+    assert verification["approval_event_time_known"] is False
+    assert verification["scenario_bytes_checked"] is False
+    assert verification["scenario_preflight_performed"] is False
+    assert verification["release_gate"]["enabled"] is False
+    visible = json.dumps(report) + result.stdout + result.stderr
+    assert "synthetic-expert" not in visible
+    assert "Synthetic approval" not in visible
+    assert "2000-02-03T04:05:06+08:00" not in visible
+    assert str(tmp_path) not in visible
+
+
+def test_charter_only_without_approval_remains_pending_without_scenarios(tmp_path):
+    _, charter, _, _ = declared_bundle(tmp_path)
+    (tmp_path / "scenarios.json").unlink()
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 0
+    assert report["verification"]["status"] == "pending"
+    assert report["verification"]["pending"] == ["expert_signoff_missing"]
+    assert report["verification"]["approval_structurally_validated"] is False
+    assert report["verification"]["scenario_preflight_performed"] is False
+    assert report["verification"]["release_gate"]["enabled"] is False
+
+
+@pytest.mark.parametrize("field,value,code", [
+    ("recorded_at", "2000-02-03T04:05:06+99:99", "signoff_recording_time_invalid"),
+    ("approved_statement_verbatim", "Synthetic approval of something unrelated", "signoff_content_invalid"),
+])
+def test_relayed_approval_rejects_invalid_recording_time_or_unrelated_content(tmp_path, field, value, code):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    signoff, attestation = relay_declared(tmp_path, manifest, charter, scenarios)
+    attestation[field] = value
+    statement_hash = hashlib.sha256(attestation["approved_statement_verbatim"].encode()).hexdigest()
+    attestation["approved_statement_sha256"] = signoff["approved_statement_sha256"] = statement_hash
+    signoff["approval_attestation"] = artifact(tmp_path, "attestation.json", attestation)
+    charter["expert_signoff"] = artifact(tmp_path, "signoff.json", signoff)
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == code
+    assert report["verification"]["release_gate"]["enabled"] is False
+
+
+@pytest.mark.parametrize("field,value,code", [
+    ("relay_source", None, "signoff_provenance_invalid"),
+    ("direct_expert_contact", True, "signoff_provenance_invalid"),
+    ("independent_identity_authentication", True, "signoff_provenance_invalid"),
+    ("cryptographic_signature", True, "signoff_provenance_invalid"),
+    ("numerical_policy_approved", True, "signoff_scope_invalid"),
+    ("activation_authorized", True, "signoff_scope_invalid"),
+    ("verbal_signoff_day", "2000-02-03", "signoff_event_time_invalid"),
+    ("verbal_signoff_at", "2000-02-03T04:05:06+08:00", "signoff_event_time_invalid"),
+    ("recorded_at", "2000-02-03", "signoff_recording_time_invalid"),
+    ("recorded_at", "2000-02-03T04:05:06", "signoff_recording_time_invalid"),
+    ("approved_statement_sha256", "0" * 64, "signoff_content_mismatch"),
+    ("approved_declaration_sha256", "0" * 64, "signoff_lineage_mismatch"),
+    ("unsigned_charter_sha256", "0" * 64, "signoff_lineage_mismatch"),
+    ("unchanged_hero_universe_sha256", "0" * 64, "signoff_lineage_mismatch"),
+])
+def test_relayed_approval_rejects_false_provenance_scope_and_lineage(tmp_path, field, value, code):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    signoff, attestation = relay_declared(tmp_path, manifest, charter, scenarios)
+    attestation[field] = value
+    signoff["approval_attestation"] = artifact(tmp_path, "attestation.json", attestation)
+    charter["expert_signoff"] = artifact(tmp_path, "signoff.json", signoff)
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == code
+    assert report["verification"]["release_gate"]["enabled"] is False
+    visible = json.dumps(report) + result.stdout + result.stderr
+    assert "synthetic-expert" not in visible
+    assert str(tmp_path) not in visible
+    assert "Traceback" not in visible
+
+
+@pytest.mark.parametrize("field", ["relay_source", "approved_statement_verbatim", "recorded_at", "verbal_signoff_day"])
+def test_relayed_approval_requires_provenance_content_and_explicit_time_precision(tmp_path, field):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    signoff, attestation = relay_declared(tmp_path, manifest, charter, scenarios)
+    attestation.pop(field)
+    signoff["approval_attestation"] = artifact(tmp_path, "attestation.json", attestation)
+    charter["expert_signoff"] = artifact(tmp_path, "signoff.json", signoff)
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "signoff_incomplete"
+
+
+@pytest.mark.parametrize("changed", ["declaration", "approval_record", "statement"])
+def test_relayed_approval_rejects_content_changes_without_new_approval_binding(tmp_path, changed):
+    manifest, charter, declaration, scenarios = declared_bundle(tmp_path)
+    signoff, attestation = relay_declared(tmp_path, manifest, charter, scenarios)
+    if changed == "declaration":
+        declaration["rules"] = ["Changed synthetic rule"]
+        charter["declaration"] = artifact(tmp_path, "declaration.json", declaration)
+        code = "signoff_lineage_mismatch"
+    elif changed == "approval_record":
+        artifact(tmp_path, "attestation.json", {**attestation, "expert_id": "other-synthetic-expert"})
+        code = "input_integrity_mismatch"
+    else:
+        attestation["approved_statement_verbatim"] += " Altered synthetic statement."
+        attestation["approved_statement_sha256"] = hashlib.sha256(
+            attestation["approved_statement_verbatim"].encode()).hexdigest()
+        signoff["approval_attestation"] = artifact(tmp_path, "attestation.json", attestation)
+        charter["expert_signoff"] = artifact(tmp_path, "signoff.json", signoff)
+        code = "signoff_content_mismatch"
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == code
+
+
+def test_relayed_approval_does_not_supply_missing_scenario_evidence(tmp_path):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    relay_declared(tmp_path, manifest, charter, scenarios)
+    (tmp_path / "scenarios.json").unlink()
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    result, report = run_replay(tmp_path, manifest, preflight=True)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "path_resolution_failed"
+    assert report["verification"]["release_gate"]["enabled"] is False
+    for name, raw in before.items():
+        assert (tmp_path / name).read_bytes() == raw
+
+
+def test_dated_signoff_cannot_omit_its_event_day(tmp_path):
+    manifest, charter, _, scenarios = declared_bundle(tmp_path)
+    sign_declared(tmp_path, manifest, charter, scenarios)
+    signoff = json.loads((tmp_path / "signoff.json").read_text())
+    signoff["signed_on"] = None
+    charter["expert_signoff"] = artifact(tmp_path, "signoff.json", signoff)
+    result, report = run_charter(tmp_path, charter)
+    assert result.returncode == 1
+    assert report["verification"]["failure"]["code"] == "date_precision_invalid"
+
+
 def test_declared_charter_rejects_signoff_for_other_declaration_without_payload_leak(tmp_path):
     manifest, charter, _, scenarios = declared_bundle(tmp_path)
     sign_declared(tmp_path, manifest, charter, scenarios, declaration_hash="0" * 64)
